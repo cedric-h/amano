@@ -1,9 +1,10 @@
+mkdir -p build
 cd build
 
-zigc build-lib \
+zig build-lib \
   -O Debug \
   -rdynamic \
-  -dynamic -target wasm32-freestanding ../main.c
+  -dynamic -target wasm32-freestanding ../main.cpp
 
 # clang \
 #    --target=wasm32 \

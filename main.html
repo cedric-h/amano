@@ -16,22 +16,52 @@
     color: white;
     font-family: sans-serif;
   }
+  canvas {
+    width: 100vw;
+    height: 100vh;
+  }
   </style>
 </head>
 <body>
   <canvas id="draw"></canvas>
+  <script src=wahook.js></script>
   <script>
 /* "with great power, comes great renamability" - max wofford */
 
-(async () => {
-  const wasm = fetch("build/main.wasm");
-  const { instance } =
-    await WebAssembly.instantiateStreaming(wasm, { env: {
-      putchar: c => console.log(String.fromCharCode(c)),
-    } });
+let canvas = null, ctx, wasm_instance = null;
 
-    instance.exports.init();
-})()
+window.addEventListener("resize", (e) => {
+  if (canvas) {
+    canvas.width = window.innerWidth
+    canvas.height = window.innerHeight
+  }
+})
+
+function frameHandler() {
+  wasm_instance.exports.frame();
+  window.requestAnimationFrame(frameHandler);
+}
+
+window.addEventListener("load", () => {
+  canvas = document.getElementById("draw");
+  canvas.width = window.innerWidth
+  canvas.height = window.innerHeight
+  ctx = canvas.getContext("2d");
+  ctx.fillStyle = "black";
+  (async () => {
+    const wasm = fetch("build/main.wasm");
+    const { instance } =
+      await WebAssembly.instantiateStreaming(wasm, { env: {
+        putrect: w => {
+          ctx.fillRect(...new Int32Array(instance.exports.memory.buffer, w, 4))
+        }
+      } });
+
+      instance.exports.init();
+      wasm_instance = instance
+      window.requestAnimationFrame(frameHandler)
+  })()
+})
 </script>
 </body>
 </html>
