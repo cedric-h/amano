@@ -1,5 +1,7 @@
-extern void print(char);
+#define WASM_EXPORT __attribute__((visibility("default")))
 
-void init(void) {
-  print('!');
+extern void putchar(char);
+
+WASM_EXPORT void init(void) {
+  putchar('!');
 }

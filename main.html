@@ -27,7 +27,7 @@
   const wasm = fetch("build/main.wasm");
   const { instance } =
     await WebAssembly.instantiateStreaming(wasm, { env: {
-      print: console.log,
+      putchar: c => console.log(String.fromCharCode(c)),
     } });
 
     instance.exports.init();
