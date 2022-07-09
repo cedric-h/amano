@@ -25,7 +25,7 @@ function logGLCall(functionName, args) {
 
 class Renderer {
   constructor(canvas) {
-    let gl = WebGLDebugUtils.makeDebugContext(canvas.getContext('webgl'), undefined, logGLCall);
+    let gl = canvas.getContext('webgl');
 
     if (!gl) {
       console.log('falling back to experimental webgl');
@@ -39,7 +39,7 @@ class Renderer {
     gl.enable(gl.CULL_FACE);
     gl.frontFace(gl.CCW);
     gl.cullFace(gl.BACK);
-    
+
     canvas.addEventListener('webglcontextlost', (evnt) => {
       console.log("WebGL context lost, restoring");
       this.gl_ex_lose_context.restoreContext();
@@ -123,7 +123,7 @@ class Renderer {
 
   setUniformMatrix4fv(shader, name, value) {
     this.gl.useProgram(shader.program)
-    this.gl.uniformMatrix4fv(gl.getUniformLocation(shader.program, name), false, value)
+    this.gl.uniformMatrix4fv(this.gl.getUniformLocation(shader.program, name), false, value)
   }
 
   draw(shader, buffer) {

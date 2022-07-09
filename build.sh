@@ -1,10 +1,16 @@
 mkdir -p build
 cd build
 
-zig build-lib \
-  -O Debug \
-  -rdynamic \
-  -dynamic -target wasm32-freestanding ../main.cpp
+while true
+do
+  echo rebuilding...
+  zig build-lib \
+    -O Debug \
+    -rdynamic \
+    -dynamic -target wasm32-freestanding ../main.cpp ../platform.cpp
+
+  sleep 1
+done
 
 # clang \
 #    --target=wasm32 \
