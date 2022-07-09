@@ -5,27 +5,41 @@ class Shader {
 }
 
 class Buffer {
-  constructor(ib, vb) {
+  constructor(ib, vb, indexCount) {
     this.ib = ib
     this.vb = vb
+    this.indexCount = indexCount
   }
 }
 
+class Attrib {
+  constructor(name, size) {
+    this.name = name
+    this.size = size
+  }
+}
+
+function logGLCall(functionName, args) {   
+  console.log("gl." + functionName + "(" + WebGLDebugUtils.glFunctionArgsToString(functionName, args) + ")");   
+} 
+
 class Renderer {
-  constructor(gl) {
-    this.gl = gl
-    this.gl_ex_lose_context = gl.getExtension("WEBGL_lose_context")
+  constructor(canvas) {
+    let gl = WebGLDebugUtils.makeDebugContext(canvas.getContext('webgl'), undefined, logGLCall);
 
     if (!gl) {
       console.log('falling back to experimental webgl');
       gl = canvas.getContext('expreimental-webgl');
     }
 
+    this.gl_ex_lose_context = gl.getExtension("WEBGL_lose_context")
+    this.gl = gl
+
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
     gl.frontFace(gl.CCW);
     gl.cullFace(gl.BACK);
-
+    
     canvas.addEventListener('webglcontextlost', (evnt) => {
       console.log("WebGL context lost, restoring");
       this.gl_ex_lose_context.restoreContext();
@@ -49,7 +63,7 @@ class Renderer {
     this.gl.compileShader(fragmentShader);
     if (!this.gl.getShaderParameter(fragmentShader, this.gl.COMPILE_STATUS))
     {
-      console.error("failed compiling vertex shader", this.gl.getShaderInfoLog(fragmentShader));
+      console.error("failed compiling fragment shader", this.gl.getShaderInfoLog(fragmentShader));
       return null;
     }
 
@@ -75,16 +89,47 @@ class Renderer {
   }
 
   updateBuffer(buffer, vertices, indices) {
-    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, buffer.vb)
-    this.gl.bufferData(this.gl.ARRAY_BUFFER, vertices, this.gl.DYNAMIC_DRAW)
+    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, buffer.vb);
+    this.gl.bufferData(this.gl.ARRAY_BUFFER, vertices, this.gl.DYNAMIC_DRAW);
 
-    this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, buffer.ib)
-    this.gl.bufferData(this.gl.ELEMENT_ARRAY_BUFFER, indices, this.gl.DYNAMIC_DRAW)
+    this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, buffer.ib);
+    this.gl.bufferData(this.gl.ELEMENT_ARRAY_BUFFER, indices, this.gl.DYNAMIC_DRAW);
+
+    buffer.indexCount = indices.length;
   }
 
   createBuffer(vertices, indices) {
-    let buf = new Buffer(this.gl.createBuffer(), this.gl.createBuffer())
+    let buf = new Buffer(this.gl.createBuffer(), this.gl.createBuffer(), indices.length)
     this.updateBuffer(buf, vertices, indices)
     return buf
+  }
+
+  vertexAttribFloatDesc(shader, attribs) {
+    let vertexSize = 0;
+
+    for (let i in attribs) {
+      vertexSize += attribs[i].size;
+    }
+
+    let offset = 0;
+
+    for (let i in attribs) {
+      let location = this.gl.getAttribLocation(shader.program, attribs[i].name);
+      this.gl.vertexAttribPointer(location, attribs[i].size, this.gl.FLOAT, false, vertexSize * Float32Array.BYTES_PER_ELEMENT, offset);
+      this.gl.enableVertexAttribArray(location);
+      offset += attribs[i].size * Float32Array.BYTES_PER_ELEMENT;
+    }
+  }
+
+  setUniformMatrix4fv(shader, name, value) {
+    this.gl.useProgram(shader.program)
+    this.gl.uniformMatrix4fv(gl.getUniformLocation(shader.program, name), false, value)
+  }
+
+  draw(shader, buffer) {
+    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, buffer.vb);
+    this.gl.bindBuffer(this.gl.ELEMENT_ARRAY_BUFFER, buffer.ib);
+    this.gl.useProgram(shader.program);
+    this.gl.drawElements(this.gl.TRIANGLES, buffer.indexCount, this.gl.UNSIGNED_SHORT, 0);
   }
 }
