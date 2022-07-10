@@ -1,4 +1,5 @@
 #include "platform.h"
+#include "math.hpp"
 
 #define LOG_CACHE_SIZE (1 << 11)
 static char log_cache[LOG_CACHE_SIZE];
@@ -93,8 +94,11 @@ PLATFORM_EXPORT void keyhit(bool down, const char *scancode) {
   }
 }
 
+float aspect = 1;
+
 PLATFORM_EXPORT void resize(int width, int height) {
   tprintf("RESIZE:OK ({}, {})\n", width, height);
+  aspect = width / float(height);
 }
 
 PLATFORM_EXPORT void mousemove(int x, int y) {
@@ -126,14 +130,8 @@ PLATFORM_EXPORT void frame(float dt) {
   };
 
   theta += dt;
-  const Mat4 identity = {
-    float(__builtin_cos(theta)), float(-__builtin_sin(theta)), 0, 0,
-    float(__builtin_sin(theta)), float(__builtin_cos(theta)), 0, 0,
-    0, 0, 1, 0,
-    0, 0, 0, 1
-  };
 
-  render(indices, sizeof indices / sizeof indices[0], vertices, sizeof vertices / sizeof vertices[0], identity);
+  render(indices, sizeof indices / sizeof indices[0], vertices, sizeof vertices / sizeof vertices[0], math_m4_rotation2d(theta) * math_m4_scale({1/aspect, 1, 1}));
 }
 
 PLATFORM_EXPORT void init(void) {

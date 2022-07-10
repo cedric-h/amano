@@ -1,3 +1,5 @@
+#ifndef PLATFORM_H
+#define PLATFORM_H
 // <WASM ONLY>
 #define PLATFORM_EXPORT __attribute__((visibility("default"))) extern "C"
 #define PLATFORM_IMPORT extern "C"
@@ -51,3 +53,4 @@ PLATFORM_IMPORT void render(
 );
 
 PLATFORM_IMPORT void console_log_n(const char *string, usize strlen);
+#endif
