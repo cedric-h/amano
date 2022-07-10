@@ -157,7 +157,7 @@ void cam_move(Camera *cam, Vec3 rotation_delta, Vec3 position_delta) {
 }
 
 Mat4 cam_vp(Camera *cam) {
-  Vec3 eye = m4_rotate_y(cam->rotation.y) * m4_rotate_x(cam->rotation.x) * Vec3{0, 0, 1};
+  Vec3 eye = v3_normalize(m4_rotate_y(cam->rotation.y) * m4_rotate_x(cam->rotation.x) * Vec3{0, 0, 1});
   return m4_perspective(cam->fov, cam->aspect, 0.1, 1000.0) * m4_lookat(cam->position, cam->position+eye, {0, 1, 0});
 }
 

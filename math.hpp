@@ -191,6 +191,6 @@ inline Mat4 m4_lookat(Vec3 center, Vec3 eye, Vec3 up) {
     x.x,              y.x,             z.x,            0,
     x.y,              y.y,             z.y,            0,
     x.z,              y.z,             z.z,            0,
-    v3_dot(x, eye * -1), v3_dot(y, eye * -1), v3_dot(z, eye * -1), 1
+    -v3_dot(x, center), -v3_dot(y, center), -v3_dot(z, center), 1
   };
 }
