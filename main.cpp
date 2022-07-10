@@ -139,12 +139,19 @@ struct Camera {
   float aspect;
 };
 
+Vec3 move_relative_to_camera(Camera *cam, Vec3 by) {
+  return m4_rotate_y(cam->rotation.y) * m4_rotate_x(cam->rotation.x) * by;
+}
+
+Vec3 get_infront_of_camera(Camera *cam, float by) {
+  return cam->position + move_relative_to_camera(cam, {0, 0, by});
+}
 
 void cam_move(Camera *cam, Vec3 rotation_delta, Vec3 position_delta) {
   const float LIM = MATH_PI_2-0.001;
 
-  cam->position += m4_rotate_y(cam->rotation.y) * position_delta;
   cam->rotation += rotation_delta;
+  cam->position += m4_rotate_y(cam->rotation.y) * position_delta;
 
   cam->rotation.x = fmod(cam->rotation.x, MATH_PI*2);
   cam->rotation.y = fmod(cam->rotation.y, MATH_PI*2);
@@ -157,7 +164,7 @@ void cam_move(Camera *cam, Vec3 rotation_delta, Vec3 position_delta) {
 }
 
 Mat4 cam_vp(Camera *cam) {
-  Vec3 eye = v3_normalize(m4_rotate_y(cam->rotation.y) * m4_rotate_x(cam->rotation.x) * Vec3{0, 0, 1});
+  Vec3 eye = m4_rotate_y(cam->rotation.y) * m4_rotate_x(cam->rotation.x) * Vec3{0, 0, 1};
   return m4_perspective(cam->fov, cam->aspect, 0.1, 1000.0) * m4_lookat(cam->position, cam->position+eye, {0, 1, 0});
 }
 
@@ -167,11 +174,23 @@ enum Key {
   KEY_COUNT
 };
 
+struct Object {
+  Vec3 pos, rot;
+};
+
+struct World {
+#define OBJ_MAX 64
+  Object objects[OBJ_MAX];
+  usize object_count;
+};
+
 struct State {
   float aspect;
   Camera cam;
   int old_mouse_x, old_mouse_y;
   bool keys[KEY_COUNT];
+  Object leading_obj;
+  World world;
 } *state;
 
 State state_memory;
@@ -182,6 +201,14 @@ int strcmp(const char *a, const char *b) {
     b++;
   }
   return *a-*b;
+}
+
+void place_world_obj(World *world, Object obj) {
+  if (world->object_count >= 64) {
+    tprintf("Too many obj on screen, can't put\n");
+    return;
+  }
+  world->objects[world->object_count++] = obj;
 }
 
 PLATFORM_EXPORT void keyhit(bool down, const char *scancode) {
@@ -198,6 +225,10 @@ PLATFORM_EXPORT void keyhit(bool down, const char *scancode) {
       state->keys[i] = down;
     }
   }
+
+  if (strcmp(scancode, "KeyF") == 0 && !down) {
+    place_world_obj(&state->world, state->leading_obj);
+  }
 }
 
 PLATFORM_EXPORT void resize(int width, int height) {
@@ -213,6 +244,11 @@ PLATFORM_EXPORT void mousemove(int x, int y) {
   state->old_mouse_y = y;
 }
 
+void render_cube(Vec3 at, Vec3 rot) {
+  Mat4 vp = cam_vp(&state->cam);
+  Mat4 m = m4_translate(at)*m4_rotate_yxz(rot);
+  render(cube_indices, sizeof cube_indices / sizeof cube_indices[0], cube_vertices, sizeof cube_vertices / sizeof cube_vertices[0], vp*m);
+}
 
 PLATFORM_EXPORT void frame(float dt) {
   cam_move(&state->cam, {0, 0, 0}, 
@@ -223,8 +259,15 @@ PLATFORM_EXPORT void frame(float dt) {
   static float theta = 0;
 
   theta += dt;
+  for (int i = 0; i < state->world.object_count; ++i) {
+    Object *obj = &state->world.objects[i];
+    render_cube(obj->pos, obj->rot);
+  }
 
-  render(cube_indices, sizeof cube_indices / sizeof cube_indices[0], cube_vertices, sizeof cube_vertices / sizeof cube_vertices[0], cam_vp(&state->cam));
+  state->leading_obj.pos = get_infront_of_camera(&state->cam, -5);
+  state->leading_obj.rot = {0, state->cam.rotation.y, 0};
+
+  render_cube(state->leading_obj.pos, state->leading_obj.rot);
 }
 
 PLATFORM_EXPORT void init(void) {
@@ -232,5 +275,4 @@ PLATFORM_EXPORT void init(void) {
   state->aspect = state->cam.aspect = 1;
   state->cam.fov = MATH_PI_2/4;
   state->cam.position.z = 5;
-  state->cam.rotation.y = 0;
 }

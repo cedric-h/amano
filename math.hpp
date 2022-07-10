@@ -182,6 +182,11 @@ static Mat4 m4_rotate_z(float angle) {
   };
 }
 
+// xyz rotation with gimbal lock....
+static Mat4 m4_rotate_yxz(Vec3 rotation) {
+  return m4_rotate_y(rotation.y) * m4_rotate_x(rotation.x) * m4_rotate_z(rotation.z);
+}
+
 inline Mat4 m4_lookat(Vec3 center, Vec3 eye, Vec3 up) {
   Vec3 z = v3_normalize(center - eye);
   Vec3 x = v3_normalize(v3_cross(up, z));
@@ -192,5 +197,14 @@ inline Mat4 m4_lookat(Vec3 center, Vec3 eye, Vec3 up) {
     x.y,              y.y,             z.y,            0,
     x.z,              y.z,             z.z,            0,
     -v3_dot(x, center), -v3_dot(y, center), -v3_dot(z, center), 1
+  };
+}
+
+inline Mat4 m4_translate(Vec3 center) {
+  return {
+    1,        0,        0,        0,
+    0,        1,        0,        0,
+    0,        0,        1,        0,
+    center.x, center.y, center.z, 1
   };
 }
