@@ -37,7 +37,7 @@ class Renderer {
 
     gl.enable(gl.DEPTH_TEST);
     gl.enable(gl.CULL_FACE);
-    gl.frontFace(gl.CCW);
+    gl.frontFace(gl.CW);
     gl.cullFace(gl.BACK);
 
     canvas.addEventListener('webglcontextlost', (evnt) => {
