@@ -63,15 +63,13 @@ void putval(float v) {
   putval(double(v));
 }
 
-void tprintf(const char* format) // base function
-{
+void tprintf(const char* format) {
   putval(format);
 }
 
 // SKEJETON: I know CEDRIC.. you are going to kill me for this:
 template<typename T, typename... Targs>
-void tprintf(const char* format, T value, Targs... Fargs) 
-{
+void tprintf(const char* format, T value, Targs... Fargs) {
   for (; *format != '\0'; format++) {
     if (*format == '{' && format[1] == '{') {
       format += 1;
@@ -85,6 +83,8 @@ void tprintf(const char* format, T value, Targs... Fargs)
     putval(*format);
   }
 }
+
+
 
 PLATFORM_EXPORT void keyhit(bool down, const char *scancode) {
   if (down) {
@@ -115,13 +115,13 @@ PLATFORM_EXPORT void frame(float dt) {
     6, 7, 8,  6, 8, 9
   };
   static Vert vertices[] = {
-    {{(-0.5-0.5)/3.0, (0.5+0.5)/3.0, -1.0}, {1.0, 1.0, 0.0}, 1.0},
-    {{(-0.5-0.5)/3.0, (-0.5+0.5)/3.0, -1.0}, {1.0, 0.0, 0.0}, 1.0}, 
-    {{(0.5-0.5)/3.0, (-0.5+0.5)/3.0, -1.0}, {1.0, 1.0, 0.0}, 1.0},
+    {{(-0.5-0.5)/3.0, (0.5+0.5)/3.0, -1.01}, {1.0, 1.0, 0.0}, 1.0},
+    {{(-0.5-0.5)/3.0, (-0.5+0.5)/3.0, -1.01}, {1.0, 0.0, 0.0}, 1.0}, 
+    {{(0.5-0.5)/3.0, (-0.5+0.5)/3.0, -1.01}, {1.0, 1.0, 0.0}, 1.0},
 
-    {{(-0.5+0.5)/3.0, (0.5-0.5)/3.0, -1.0}, {1.0, 1.0, 0.0}, 1.0},
-    {{(0.5+0.5)/3.0, (0.5-0.5)/3.0, -1.0}, {1.0, 0.0, 0.0}, 1.0}, 
-    {{(0.5+0.5)/3.0, (-0.5-0.5)/3.0, -1.0}, {1.0, 1.0, 0.0}, 1.0},
+    {{(-0.5+0.5)/3.0, (0.5-0.5)/3.0, -1.01}, {1.0, 1.0, 0.0}, 1.0},
+    {{(0.5+0.5)/3.0, (0.5-0.5)/3.0, -1.01}, {1.0, 0.0, 0.0}, 1.0}, 
+    {{(0.5+0.5)/3.0, (-0.5-0.5)/3.0, -1.01}, {1.0, 1.0, 0.0}, 1.0},
 
     {{-0.5, 0.5, -1.0}, {1.0, 1.0, 0.0}, 1.0},
     {{-0.5, -0.5, -1.0}, {1.0, 0.0, 0.0}, 1.0}, 
@@ -131,7 +131,8 @@ PLATFORM_EXPORT void frame(float dt) {
 
   theta += dt;
 
-  render(indices, sizeof indices / sizeof indices[0], vertices, sizeof vertices / sizeof vertices[0], math_m4_rotation2d(theta) * math_m4_scale({1/aspect, 1, 1}));
+  Mat4 vp = m4_perspective(1.047f, aspect, 0.1, 100.0) * m4_lookat({0, 0, 2}, {0, 0, -2}, {0, 1, 0}) * m4_rotate_y(theta) * m4_rotate_z(-3.1415/4);
+  render(indices, sizeof indices / sizeof indices[0], vertices, sizeof vertices / sizeof vertices[0], vp);
 }
 
 PLATFORM_EXPORT void init(void) {
