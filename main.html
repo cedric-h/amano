@@ -56,7 +56,10 @@ void main() {
 
 /* "with great power, comes great renamability" - max wofford */
 
+
 let canvas = null, renderer = null, shader = null, buffer = null, wasm_instance = null;
+
+let mousePos = [0, 0], movedMouse = false;
 
 function renderHandler(indices, vertices, mvp) {
   renderer.updateBuffer(buffer, vertices, indices);
@@ -125,8 +128,19 @@ window.addEventListener("load", () => {
       })
 
       canvas.addEventListener("mousemove", (e) => {
-        wasm_instance.exports.mousemove(e.offsetX, e.offsetY);
+        if (movedMouse) {
+          mousePos[0] = e.offsetX;
+          mousePos[1] = e.offsetY;
+        }
+        mousePos[0] += e.movementX;
+        mousePos[1] += e.movementY;
+        wasm_instance.exports.mousemove(mousePos[0], mousePos[1]);
       })
+
+      canvas.addEventListener("click", (e) => {
+        e.target.requestPointerLock()
+      })
+
       window.requestAnimationFrame(frameHandler)
   })()
 })

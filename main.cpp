@@ -132,36 +132,105 @@ void tprintf(const char* format, T value, Targs... Fargs) {
   }
 }
 
-PLATFORM_EXPORT void keyhit(bool down, const char *scancode) {
-  if (down) {
-    tprintf("KEYINFO:OK DOWN '{}'\n", scancode);
-  } else {
-    tprintf("KEYINFO:OK UP '{}'\n", scancode);
+struct Camera {
+  Vec3 rotation; // don't use the z component
+  Vec3 position;
+  float fov;
+  float aspect;
+};
+
+
+void cam_move(Camera *cam, Vec3 rotation_delta, Vec3 position_delta) {
+  const float LIM = MATH_PI_2-0.001;
+
+  cam->position += m4_rotate_y(cam->rotation.y) * position_delta;
+  cam->rotation += rotation_delta;
+
+  cam->rotation.x = fmod(cam->rotation.x, MATH_PI*2);
+  cam->rotation.y = fmod(cam->rotation.y, MATH_PI*2);
+
+  if (cam->rotation.x > LIM) {
+    cam->rotation.x = LIM;
+  } else if (cam->rotation.x < -LIM) {
+    cam->rotation.x = -LIM;
   }
 }
 
-float aspect = 1;
+Mat4 cam_vp(Camera *cam) {
+  Vec3 eye = m4_rotate_y(cam->rotation.y) * m4_rotate_x(cam->rotation.x) * Vec3{0, 0, 1};
+  return m4_perspective(cam->fov, cam->aspect, 0.1, 1000.0) * m4_lookat(cam->position, cam->position+eye, {0, 1, 0});
+}
+
+enum Key {
+  KEY_SHIFT, KEY_SPACE,
+  KEY_W, KEY_A, KEY_S, KEY_D,
+  KEY_COUNT
+};
+
+struct State {
+  float aspect;
+  Camera cam;
+  int old_mouse_x, old_mouse_y;
+  bool keys[KEY_COUNT];
+} *state;
+
+State state_memory;
+
+int strcmp(const char *a, const char *b) {
+  while (*a && *a == *b) {
+    a++;
+    b++;
+  }
+  return *a-*b;
+}
+
+PLATFORM_EXPORT void keyhit(bool down, const char *scancode) {
+  const char *map[KEY_COUNT];
+  map[KEY_SHIFT] = "ShiftLeft";
+  map[KEY_SPACE] = "Space";
+  map[KEY_W] = "KeyW";
+  map[KEY_S] = "KeyS";
+  map[KEY_A] = "KeyA";
+  map[KEY_D] = "KeyD";
+
+  for (int i = 0; i < KEY_COUNT; ++i) {
+    if (strcmp(scancode, map[i]) == 0) {
+      state->keys[i] = down;
+    }
+  }
+}
 
 PLATFORM_EXPORT void resize(int width, int height) {
-  tprintf("RESIZE:OK ({}, {})\n", width, height);
-  aspect = width / float(height);
+  state->aspect = state->cam.aspect = width / float(height);
 }
 
 PLATFORM_EXPORT void mousemove(int x, int y) {
-  tprintf("MOUSEMOVE:OK ({}, {})\n", x, y);
+  int dx = x - state->old_mouse_x, dy = y - state->old_mouse_y;
+  if (!(state->old_mouse_x == 0 && state->old_mouse_y == 0)) { // fix moving from 0, 0
+    cam_move(&state->cam, {-float(dy)/300.0f, float(dx)/300.0f, 0}, {0, 0, 0});
+  }
+  state->old_mouse_x = x;
+  state->old_mouse_y = y;
 }
 
+
 PLATFORM_EXPORT void frame(float dt) {
-  tprintf("FRAME:OK\n");
+  cam_move(&state->cam, {0, 0, 0}, 
+    {(state->keys[KEY_A] - state->keys[KEY_D]) * dt,
+     (state->keys[KEY_SPACE] - state->keys[KEY_SHIFT]) * dt,
+     (state->keys[KEY_S] - state->keys[KEY_W]) * dt});
 
   static float theta = 0;
 
   theta += dt;
-  Mat4 vp = m4_perspective(1.047f, aspect, 0.1, 100.0) * m4_lookat({0, 0, 2}, {0, 0, -2}, {0, 1, 0}) * m4_rotate_y(theta) * m4_rotate_z(-3.1415/4);
-  render(cube_indices, sizeof cube_indices / sizeof cube_indices[0], cube_vertices, sizeof cube_vertices / sizeof cube_vertices[0], vp);
+
+  render(cube_indices, sizeof cube_indices / sizeof cube_indices[0], cube_vertices, sizeof cube_vertices / sizeof cube_vertices[0], cam_vp(&state->cam));
 }
 
 PLATFORM_EXPORT void init(void) {
-  tprintf("{} is the meaning of life, and {} is the answer to everything.\n", 42, 3.14159265);
-  tprintf("INIT:OK\n");
+  state = &state_memory;
+  state->aspect = state->cam.aspect = 1;
+  state->cam.fov = MATH_PI_2/4;
+  state->cam.position.z = 5;
+  state->cam.rotation.y = 0;
 }

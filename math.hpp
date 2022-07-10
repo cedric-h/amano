@@ -2,12 +2,12 @@
 
 
 #define MATH_PI 3.141592653589793
-#define MATH_PI_2 1.5707963267948966/2.0
+#define MATH_PI_2 1.5707963267948966
 
 
 #define cos(x) __builtin_cos(x)
 #define sin(x) __builtin_sin(x)
-#define fmod(x) __builtin_fmod(x)
+#define fmod(x, y) __builtin_fmod(x, y)
 #define sqrt(x) __builtin_sqrt(x)
 
 /* Vec3 */
@@ -77,6 +77,19 @@ inline Vec3 v3_cross(Vec3 a, Vec3 b) {
 }
 
 /* Mat4 */
+
+inline Vec3 operator*(Mat4 a, Vec3 b) {
+  float data[4] = {b.x, b.y, b.z, 1.0};
+  float ret[4] = {};
+
+  for (int i = 0; i < 4; ++i) {
+    for (int j = 0; j < 4; ++j) {
+      ret[i] += a.num[j][i] * data[j];
+    }
+  }
+
+  return {ret[0], ret[1], ret[2]};
+}
 
 inline Mat4 operator*(Mat4 a, Mat4 b) {
   Mat4 ret = {};
