@@ -60,7 +60,6 @@ let canvas = null, renderer = null, shader = null, buffer = null, wasm_instance 
 
 function renderHandler(indices, vertices, mvp) {
   renderer.updateBuffer(buffer, vertices, indices);
-  // TODO: use MVP
   renderer.setUniformMatrix4fv(shader, 'mvp', mvp);
   renderer.draw(shader, buffer);
 }

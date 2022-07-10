@@ -1,7 +1,13 @@
 #include "platform.h"
 
+
+#define MATH_PI 3.141592653589793
+#define MATH_PI_2 1.5707963267948966/2.0
+
+
 #define cos(x) __builtin_cos(x)
 #define sin(x) __builtin_sin(x)
+#define fmod(x) __builtin_fmod(x)
 #define sqrt(x) __builtin_sqrt(x)
 
 /* Vec3 */

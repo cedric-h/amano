@@ -84,8 +84,6 @@ void tprintf(const char* format, T value, Targs... Fargs) {
   }
 }
 
-
-
 PLATFORM_EXPORT void keyhit(bool down, const char *scancode) {
   if (down) {
     tprintf("KEYINFO:OK DOWN '{}'\n", scancode);
@@ -130,7 +128,6 @@ PLATFORM_EXPORT void frame(float dt) {
   };
 
   theta += dt;
-
   Mat4 vp = m4_perspective(1.047f, aspect, 0.1, 100.0) * m4_lookat({0, 0, 2}, {0, 0, -2}, {0, 1, 0}) * m4_rotate_y(theta) * m4_rotate_z(-3.1415/4);
   render(indices, sizeof indices / sizeof indices[0], vertices, sizeof vertices / sizeof vertices[0], vp);
 }

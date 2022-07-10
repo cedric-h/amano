@@ -3,7 +3,7 @@ cd build
 
 while true
 do
-  echo rebuilding...
+  wc -c main.wasm
   zig build-lib \
     -O Debug \
     -rdynamic \
