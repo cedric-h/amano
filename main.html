@@ -59,8 +59,6 @@ void main() {
 
 let canvas = null, renderer = null, shader = null, buffer = null, wasm_instance = null;
 
-let mousePos = [0, 0], movedMouse = false;
-
 function renderHandler(indices, vertices, mvp) {
   renderer.updateBuffer(buffer, vertices, indices);
   renderer.setUniformMatrix4fv(shader, 'mvp', mvp);
@@ -133,13 +131,12 @@ window.addEventListener("load", () => {
       })
 
       canvas.addEventListener("mousemove", (e) => {
-        if (movedMouse) {
-          mousePos[0] = e.offsetX;
-          mousePos[1] = e.offsetY;
+        e.preventDefault()
+        var dx = e.movementX, dy = e.movementY;
+        if (dx*dx+dy*dy > 300*300) {
+          console.log(`dx ${dx} dy ${dy}\n`);
         }
-        mousePos[0] += e.movementX;
-        mousePos[1] += e.movementY;
-        wasm_instance.exports.mousemove(mousePos[0], mousePos[1]);
+        wasm_instance.exports.mousemove(e.offsetX, e.offsetY, e.movementX, e.movementY);
       })
 
       canvas.addEventListener("click", (e) => {

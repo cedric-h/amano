@@ -254,8 +254,7 @@ PLATFORM_EXPORT void resize(int width, int height) {
   state->aspect = state->cam.aspect = width / float(height);
 }
 
-PLATFORM_EXPORT void mousemove(int x, int y) {
-  int dx = x - state->old_mouse_x, dy = y - state->old_mouse_y;
+PLATFORM_EXPORT void mousemove(int x, int y, int dx, int dy) {
   if (!(state->old_mouse_x == 0 && state->old_mouse_y == 0)) { // fix moving from 0, 0
     cam_move(&state->cam, {-float(dy)/300.0f, float(dx)/300.0f, 0}, {0, 0, 0});
   }
@@ -283,10 +282,10 @@ static void geo_make_tri(Geo *geo, u16 a, u16 b, u16 c) {
 
 
 #define FRAME_VBUF_SIZE (1 << 12)
-#define FRAME_IBUF_SIZE (1 << 12)
+#define FRAME_IBUF_SIZE (1 << 13)
 
-static u16  __frame_ibuf[FRAME_VBUF_SIZE];
-static Vert __frame_vbuf[FRAME_IBUF_SIZE];
+static u16  __frame_ibuf[FRAME_IBUF_SIZE];
+static Vert __frame_vbuf[FRAME_VBUF_SIZE];
 Geo fgeo = {
   .ibuf = __frame_ibuf,
   .vbuf = __frame_vbuf,
@@ -473,11 +472,11 @@ PLATFORM_EXPORT void frame(float dt) {
   state->leading_obj.rot = {0, state->cam.rotation.y, 0};
 
   render_shape(Shape_Cylinder, state->leading_obj.pos, state->leading_obj.rot);
+  render_debug_info(dt);
 
   //render_shape(Shape_Cube, state->leading_obj.pos, state->leading_obj.rot);
   flush_fgeo();
 
-  render_debug_info(dt);
 }
 
 PLATFORM_EXPORT void init(void) {
@@ -492,17 +491,21 @@ PLATFORM_EXPORT void init(void) {
     };
     u16 fan_center_bottom = vert(0.0f, -0.5f, 0.0f, {0, -1, 0}),
         fan_center_top    = vert(0.0f, 0.5f, 0.0f, {0, 1, 0});
-    for (float i = 0.0f; i < 10.0f; i += 1.0f) {
-        float t0 =  i         / 10.0f * MATH_TAU,
-              t1 = (i + 1.0f) / 10.0f * MATH_TAU;
-        u16 bottom_l = vert(sin(t0)*0.5f, -0.5f, cos(t0)*0.5f),
-            bottom_r = vert(sin(t1)*0.5f, -0.5f, cos(t1)*0.5f),
-               top_l = vert(sin(t0)*0.5f, 0.5f, cos(t0)*0.5f),
-               top_r = vert(sin(t1)*0.5f, 0.5f, cos(t1)*0.5f);
+
+    u16 bottom_l = vert(sin(0)*0.5f, -0.5f, cos(0)*0.5f),
+        top_l = vert(sin(0)*0.5f, 0.5f, cos(0)*0.5f);
+        ;
+
+    for (float i = 1.0f; i <= 10.0f; i += 1.0f) {
+        float t =  i         / 10.0f * MATH_TAU;
+        u16 bottom_r = vert(sin(t)*0.5f, -0.5f, cos(t)*0.5f),
+            top_r = vert(sin(t)*0.5f, 0.5f, cos(t)*0.5f);
         geo_make_tri(geo, bottom_r, top_r, top_l);
         geo_make_tri(geo, bottom_l, bottom_r, top_l);
         geo_make_tri(geo, bottom_l, fan_center_bottom, bottom_r);
         geo_make_tri(geo, top_l, top_r, fan_center_top);
+        bottom_l = bottom_r;
+        top_l = top_r;
     }
   }
 

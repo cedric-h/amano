@@ -44,7 +44,7 @@ PLATFORM_EXPORT void init(void);
 PLATFORM_EXPORT void frame(float dt); // expected to call `render`
 PLATFORM_EXPORT void keyhit(bool down, const char *scancode);
 PLATFORM_EXPORT void resize(int width, int height);
-PLATFORM_EXPORT void mousemove(int x, int y);
+PLATFORM_EXPORT void mousemove(int x, int y, int dx, int dy);
 
 PLATFORM_IMPORT void render(
   u16  *indexes, int index_count,
