@@ -125,6 +125,7 @@ struct State {
   /* sim */
   Object leading_obj;
   World world;
+  Object *focus; // The object we are trying to attach new objects
 } *state;
 
 State state_memory;
@@ -160,7 +161,7 @@ PLATFORM_EXPORT void keyhit(bool down, const char *scancode) {
     }
   }
 
-  if (strcmp(scancode, "KeyF") == 0 && down) {
+  if (strcmp(scancode, "KeyF") == 0 && !down && state->focus != nullptr) {
     place_world_obj(&state->world, state->leading_obj);
   }
 }
@@ -362,6 +363,64 @@ void render_debug_info(float dt) {
     fgeo_flush_generation);
 }
 
+float object_distance(Object *a, Object *b) {
+  return v3_length(a->pos - b->pos);
+}
+
+Object *find_focus_obj(Vec3 to) {
+  Object *closest = nullptr;
+  float closest_distance = 1000000;
+
+  for (int i = 0; i < state->world.object_count; ++i) {
+    float distance = v3_length(state->world.objects[i].pos - to);
+    if (distance < 4 && distance < closest_distance)  {
+      closest_distance = distance;
+      closest = &state->world.objects[i];
+    }
+  }
+
+  return closest;
+}
+
+float normalize_angle(float angle) {
+  while (angle < 0) {
+    angle += MATH_TAU;
+  }
+  angle = fmod(angle, MATH_TAU);
+
+
+  return angle;
+}
+
+float granular_rotation(float origin, float angle, int segments) {
+  angle = normalize_angle(angle);
+  origin = normalize_angle(origin);
+  PUT_DEBUG_TEXT(20, 500, "angle {} origin {}\n", angle, origin);
+
+  const float segment_size = (MATH_TAU) / segments;
+  return normalize_angle(__builtin_round((angle - origin) / (MATH_TAU) * segments) * segment_size + origin);
+}
+
+Object make_aligned_object(Object *focus, Camera *cam) {
+  Object result = {};
+  float rotation;
+
+  switch (focus->shape) {
+    case Shape_Cube:
+      rotation = granular_rotation(focus->rot.y, cam->rotation.y, 4);
+      break;
+    case Shape_Cylinder:
+      rotation = cam->rotation.y;
+      break;
+    default: 
+      break;
+  }
+
+  result.pos = Vec3{0, 0, 1} * m4_rotate_y(rotation) + find_focus_obj(state->cam.position)->pos;
+  result.rot.y = rotation;
+  return result;
+}
+
 PLATFORM_EXPORT void frame(float dt) {
   cam_move(&state->cam, {0, 0, 0}, 
     {(state->keys[Key_D] - state->keys[Key_A]) * dt,
@@ -377,10 +436,17 @@ PLATFORM_EXPORT void frame(float dt) {
     render_shape(obj->shape, obj->pos, obj->rot);
   }
 
-  state->leading_obj.pos = Vec3{0, 0, 1} * m4_rotate_y(state->cam.rotation.y);
-  state->leading_obj.rot = {0, state->cam.rotation.y, 0};
+  state->focus = find_focus_obj(state->cam.position);
+  if (state->focus != nullptr) {
+    state->leading_obj = make_aligned_object(state->focus, &state->cam);
+    Object *maybe_occlusion = find_focus_obj(state->leading_obj.pos);
+    if (object_distance(&state->leading_obj, maybe_occlusion) < 0.1) { // find if we placed the block here (ERROR PRONE TEMPORARY)
+      state->focus = nullptr; 
+    } else {
+      render_shape(Shape_Cube, state->leading_obj.pos, state->leading_obj.rot);
+    }
+  }
 
-  render_shape(Shape_Cube, state->leading_obj.pos, state->leading_obj.rot);
   render_debug_info(dt);
 
   //render_shape(Shape_Cube, state->leading_obj.pos, state->leading_obj.rot);
@@ -420,7 +486,7 @@ PLATFORM_EXPORT void init(void) {
 
   state = &state_memory;
   state->aspect = state->cam.aspect = 1;
-  state->cam.fov = MATH_PI_2/4;
+  state->cam.fov = MATH_PI_2/2;
   state->cam.position.y = 2;
 
   place_world_obj(&state->world, (Object){Shape_Cylinder});
