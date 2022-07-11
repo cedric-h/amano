@@ -58,6 +58,7 @@ void main() {
 
 
 let canvas = null, renderer = null, shader = null, buffer = null, wasm_instance = null;
+let prevMouseDeltaRel = 0.0;
 
 function renderHandler(indices, vertices, mvp) {
   renderer.updateBuffer(buffer, vertices, indices);
@@ -133,7 +134,13 @@ window.addEventListener("load", () => {
       canvas.addEventListener("mousemove", (e) => {
         e.preventDefault()
         var dx = e.movementX, dy = e.movementY;
-        wasm_instance.exports.mousemove(e.offsetX, e.offsetY, dx, dy);
+        var dist = Math.sqrt(dx*dx+dy*dy);
+
+        if (dist < prevMouseDeltaRel || dist < 250) {
+          wasm_instance.exports.mousemove(e.offsetX, e.offsetY, dx, dy);
+        }
+
+        prevMouseDeltaRel = dist;
       })
 
       canvas.addEventListener("click", (e) => {
