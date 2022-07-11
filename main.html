@@ -132,7 +132,8 @@ window.addEventListener("load", () => {
 
       canvas.addEventListener("mousemove", (e) => {
         e.preventDefault()
-        wasm_instance.exports.mousemove(e.offsetX, e.offsetY, e.movementX, e.movementY);
+        var dx = e.movementX, dy = e.movementY;
+        wasm_instance.exports.mousemove(e.offsetX, e.offsetY, dx, dy);
       })
 
       canvas.addEventListener("click", (e) => {

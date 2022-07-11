@@ -1,5 +1,5 @@
 #include "platform.h"
-
+#include "log.h"
 
 #define MATH_TAU 6.283185307179586
 #define MATH_PI 3.141592653589793
@@ -90,6 +90,10 @@ inline Vec3 operator*(Mat4 a, Vec3 b) {
   }
 
   return {ret[0], ret[1], ret[2]};
+}
+
+inline Vec3 operator*(Vec3 b, Mat4 a) {
+  return a * b;
 }
 
 inline Mat4 operator*(Mat4 a, Mat4 b) {
@@ -189,7 +193,7 @@ static Mat4 m4_rotate_yxz(Vec3 rotation) {
 }
 
 inline Mat4 m4_lookat(Vec3 center, Vec3 eye, Vec3 up) {
-  Vec3 z = v3_normalize(center - eye);
+  Vec3 z = v3_normalize(eye - center);
   Vec3 x = v3_normalize(v3_cross(up, z));
   Vec3 y = v3_cross(z, x);
 

@@ -1,6 +1,7 @@
 #include "platform.h"
 #include "math.h"
 #include "gen.h"
+#include "log.h"
 
 Vert cube_vertices[] = {
   // pos                normal    value
@@ -50,96 +51,6 @@ u16 cube_indices[] = {
   22, 21, 20,  23, 22, 20  // -y
 };
 
-#define LOG_CACHE_SIZE (1 << 11)
-static char log_cache[LOG_CACHE_SIZE+1];
-static usize log_cache_length = 0;
-static bool log_noflush = false;
-
-char *flush() {
-  log_cache[log_cache_length] = 0;
-  log_cache_length = 0;
-
-  return log_cache;
-}
-
-void putval(char c) {
-  if (log_cache_length >= LOG_CACHE_SIZE) {
-    console_log_n("Log cache exhausted", 19);
-    return;
-  }
-  if (c == '\n' && log_noflush == false) {
-    console_log_n(log_cache, log_cache_length);
-    log_cache_length = 0;
-  } else {
-    log_cache[log_cache_length++] = c;
-  }
-}
-
-void putval(const char *s) {
-  while (*s) {
-    putval(*s++);
-  }
-}
-
-void putval(int v) {
-  char buf[16] = { 0 };
-  int i = 0;
-
-  if (v == 0) {
-    putval('0');
-    return;
-  }
-
-  if (v < 0) {
-    v *= -1;
-    putval('-');
-  }
-
-  while (v > 0) {
-    buf[i++] = v % 10 + '0';
-    v /= 10;
-  }
-
-  while (i--) {
-    putval(buf[i]);
-  }
-}
-
-void putval(double v) {
-  if (v < 0) {
-    v *= -1;
-    putval('-');
-  }
-
-  putval(int(v));
-  putval('.');
-  putval(int((v-int(v)) * 1000000));
-}
-
-void putval(float v) {
-  putval(double(v));
-}
-
-void tprintf(const char* format) {
-  putval(format);
-}
-
-// SKEJETON: I know CEDRIC.. you are going to kill me for this:
-template<typename T, typename... Targs>
-void tprintf(const char* format, T value, Targs... Fargs) {
-  for (; *format != '\0'; format++) {
-    if (*format == '{' && format[1] == '{') {
-      format += 1;
-    } else if (*format == '}' && format[1] == '}') {
-      format += 1;
-    } else if (*format == '{' && format[1] == '}') {
-      putval(value);
-      tprintf(format + 2, Fargs...); 
-      return;
-    } 
-    putval(*format);
-  }
-}
 
 struct Camera {
   Vec3 rotation; // don't use the z component (just don't)
@@ -175,17 +86,24 @@ void cam_move(Camera *cam, Vec3 rotation_delta, Vec3 position_delta) {
 Mat4 cam_vp(Camera *cam) {
   Vec3 eye = m4_rotate_y(cam->rotation.y) *
              m4_rotate_x(cam->rotation.x) *
-             Vec3{0, 0, 1}                ;
+             Vec3{0, 0, 1};
   return m4_perspective(cam->fov, cam->aspect, 0.1, 1000.0) * m4_lookat(cam->position, cam->position+eye, {0, 1, 0});
 }
 
 enum Key {
-  KEY_SHIFT, KEY_SPACE,
-  KEY_W, KEY_A, KEY_S, KEY_D,
-  KEY_COUNT
+  Key_Shift, Key_Space,
+  Key_W, Key_A, Key_S, Key_D,
+  Key_COUNT
+};
+
+enum Shape {
+  Shape_Cube,
+  Shape_Cylinder,
+  Shape_COUNT
 };
 
 struct Object {
+  Shape shape;
   Vec3 pos, rot;
 };
 
@@ -202,7 +120,7 @@ struct State {
   Camera cam;
 
   /* input */
-  bool keys[KEY_COUNT];
+  bool keys[Key_COUNT];
 
   /* sim */
   Object leading_obj;
@@ -228,15 +146,15 @@ void place_world_obj(World *world, Object obj) {
 }
 
 PLATFORM_EXPORT void keyhit(bool down, const char *scancode) {
-  const char *map[KEY_COUNT];
-  map[KEY_SHIFT] = "ShiftLeft";
-  map[KEY_SPACE] = "Space";
-  map[KEY_W] = "KeyW";
-  map[KEY_S] = "KeyS";
-  map[KEY_A] = "KeyA";
-  map[KEY_D] = "KeyD";
+  const char *map[Key_COUNT];
+  map[Key_Shift] = "ShiftLeft";
+  map[Key_Space] = "Space";
+  map[Key_W] = "KeyW";
+  map[Key_S] = "KeyS";
+  map[Key_A] = "KeyA";
+  map[Key_D] = "KeyD";
 
-  for (int i = 0; i < KEY_COUNT; ++i) {
+  for (int i = 0; i < Key_COUNT; ++i) {
     if (strcmp(scancode, map[i]) == 0) {
       state->keys[i] = down;
     }
@@ -254,7 +172,7 @@ PLATFORM_EXPORT void resize(int width, int height) {
 }
 
 PLATFORM_EXPORT void mousemove(int x, int y, int dx, int dy) {
-  cam_move(&state->cam, {-float(dy)/300.0f, float(dx)/300.0f, 0}, {0, 0, 0});
+  cam_move(&state->cam, {float(dy)/300.0f, float(dx)/300.0f, 0}, {0, 0, 0});
 }
 
 struct Geo {
@@ -287,11 +205,7 @@ Geo fgeo = {
 };
 static int fgeo_flush_generation = 0;
 
-enum Shape {
-  Shape_Cube,
-  Shape_Cylinder,
-  Shape_COUNT
-};
+
 static u16  __cyl_ibuf[1 << 7];
 static Vert __cyl_vbuf[1 << 7];
 
@@ -450,9 +364,9 @@ void render_debug_info(float dt) {
 
 PLATFORM_EXPORT void frame(float dt) {
   cam_move(&state->cam, {0, 0, 0}, 
-    {(state->keys[KEY_A] - state->keys[KEY_D]) * dt,
-     (state->keys[KEY_SPACE] - state->keys[KEY_SHIFT]) * dt,
-     (state->keys[KEY_S] - state->keys[KEY_W]) * dt});
+    {(state->keys[Key_D] - state->keys[Key_A]) * dt,
+     (state->keys[Key_Space] - state->keys[Key_Shift]) * dt,
+     (state->keys[Key_W] - state->keys[Key_S]) * dt});
 
   static float theta = 0;
 
@@ -460,13 +374,13 @@ PLATFORM_EXPORT void frame(float dt) {
   theta += dt;
   for (int i = 0; i < state->world.object_count; ++i) {
     Object *obj = &state->world.objects[i];
-    render_shape(Shape_Cylinder, obj->pos, obj->rot);
+    render_shape(obj->shape, obj->pos, obj->rot);
   }
 
-  state->leading_obj.pos = get_infront_of_camera(&state->cam, -5);
+  state->leading_obj.pos = Vec3{0, 0, 1} * m4_rotate_y(state->cam.rotation.y);
   state->leading_obj.rot = {0, state->cam.rotation.y, 0};
 
-  render_shape(Shape_Cylinder, state->leading_obj.pos, state->leading_obj.rot);
+  render_shape(Shape_Cube, state->leading_obj.pos, state->leading_obj.rot);
   render_debug_info(dt);
 
   //render_shape(Shape_Cube, state->leading_obj.pos, state->leading_obj.rot);
@@ -479,7 +393,7 @@ PLATFORM_EXPORT void init(void) {
     Geo *geo = shape_geos + Shape_Cylinder;
     auto vert = [geo](float x, float y, float z, Vec3 norm = {0, 0, 1}) {
       Vert v = {0};
-      v.pos = Vec3 { x, y, z };
+      v.pos = Vec3{x, y, z};
       v.color = 0.5f;
       v.norm = norm;
       return geo_push_vert(geo, v);
@@ -507,5 +421,7 @@ PLATFORM_EXPORT void init(void) {
   state = &state_memory;
   state->aspect = state->cam.aspect = 1;
   state->cam.fov = MATH_PI_2/4;
-  state->cam.position.z = 0;
+  state->cam.position.y = 2;
+
+  place_world_obj(&state->world, (Object){Shape_Cylinder});
 }
