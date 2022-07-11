@@ -251,23 +251,63 @@ PLATFORM_EXPORT void mousemove(int x, int y) {
   state->old_mouse_y = y;
 }
 
-static u16  ibuf[1 << 11]; static int i_used;
-static Vert vbuf[1 << 11]; static int v_used;
+struct Geo {
+  int ibuf_len, vbuf_len;
+  u16 *ibuf;
+  Vert *vbuf;
+};
+static u16 geo_push_vert(Geo *geo, Vert v) {
+  u16 i = geo->vbuf_len;
+  geo->vbuf[geo->vbuf_len++] = v;
+  return i;
+}
+static void geo_make_tri(Geo *geo, u16 a, u16 b, u16 c) {
+  geo->ibuf[geo->ibuf_len++] = a;
+  geo->ibuf[geo->ibuf_len++] = b;
+  geo->ibuf[geo->ibuf_len++] = c;
+}
 
-void render_cube(Vec3 at, Vec3 rot) {
+
+static u16  __frame_ibuf[1 << 11];
+static Vert __frame_vbuf[1 << 11];
+Geo fgeo = {
+  .ibuf = __frame_ibuf,
+  .vbuf = __frame_vbuf,
+};
+
+enum Shape {
+  Shape_Cube,
+  Shape_Cylinder,
+  Shape_COUNT
+};
+static u16  __cyl_ibuf[1 << 5];
+static Vert __cyl_vbuf[1 << 6];
+Geo shape_geos[Shape_COUNT] = {
+  /*[Shape_Cube] = */{
+    .ibuf_len = sizeof cube_indices / sizeof cube_indices[0],
+    .vbuf_len = sizeof cube_vertices / sizeof cube_vertices[0],
+    .ibuf = cube_indices,
+    .vbuf = cube_vertices,
+  },
+  /*[Shape_Cylinder] = */{
+    .ibuf = __cyl_ibuf,
+    .vbuf = __cyl_vbuf
+  },
+};
+
+void render_shape(Shape shape, Vec3 at, Vec3 rot) {
   Mat4 m = m4_translate(at)*m4_rotate_yxz(rot);
+  Geo *src = shape_geos + shape;
 
-  int n_vert = sizeof cube_vertices / sizeof cube_vertices[0];
-  int v_start = v_used;
-  for (int i = 0; i < n_vert; i++) {
-    Vert vert = cube_vertices[i];
+  int v_start = fgeo.vbuf_len;
+  for (int i = 0; i < src->vbuf_len; i++) {
+    Vert vert = src->vbuf[i];
     vert.pos = m * vert.pos;
-    vbuf[v_used++] = vert;
+    fgeo.vbuf[fgeo.vbuf_len++] = vert;
   }
 
-  int n_idx = sizeof cube_indices / sizeof cube_indices[0];
-  for (int i = 0; i < n_idx; i++)
-    ibuf[i_used++] = v_start + cube_indices[i];
+  for (int i = 0; i < src->ibuf_len; i++)
+    fgeo.ibuf[fgeo.ibuf_len++] = v_start + src->ibuf[i];
 }
 
 PLATFORM_EXPORT void frame(float dt) {
@@ -278,28 +318,53 @@ PLATFORM_EXPORT void frame(float dt) {
 
   static float theta = 0;
 
-  v_used = 0;
-  i_used = 0;
+  fgeo.vbuf_len = 0;
+  fgeo.ibuf_len = 0;
 
   theta += dt;
   for (int i = 0; i < state->world.object_count; ++i) {
     Object *obj = &state->world.objects[i];
-    render_cube(obj->pos, obj->rot);
+    render_shape(Shape_Cube, obj->pos, obj->rot);
   }
 
   state->leading_obj.pos = get_infront_of_camera(&state->cam, -5);
   state->leading_obj.rot = {0, state->cam.rotation.y, 0};
 
-  render_cube(state->leading_obj.pos, state->leading_obj.rot);
+  render_shape(Shape_Cylinder, state->leading_obj.pos, state->leading_obj.rot);
 
   render(
-    ibuf, i_used,
-    vbuf, v_used,
+    fgeo.ibuf, fgeo.ibuf_len,
+    fgeo.vbuf, fgeo.vbuf_len,
     cam_vp(&state->cam)
   );
 }
 
 PLATFORM_EXPORT void init(void) {
+  {
+    Geo *geo = shape_geos + Shape_Cylinder;
+    auto vert = [geo](float x, float y, float z) {
+      Vert v = {0};
+      v.pos = Vec3 { x, y, z };
+      v.color = 0.5f;
+      return geo_push_vert(geo, v);
+    };
+    u16 fan_center_bottom = vert(0.0f, 0.0f, 0.0f),
+        fan_center_top    = vert(0.0f, 2.0f, 0.0f);
+    for (float i = 0.0f; i < 10.0f; i++) {
+        float t0 =  i         / 10.0f * MATH_TAU,
+              t1 = (i + 1.0f) / 10.0f * MATH_TAU;
+        u16 bottom_l = vert(sin(t0)*0.5f, 0.0f, cos(t0)*0.5f),
+            bottom_r = vert(sin(t1)*0.5f, 0.0f, cos(t1)*0.5f),
+               top_l = vert(sin(t0)*0.5f, 1.0f, cos(t0)*0.5f),
+               top_r = vert(sin(t1)*0.5f, 1.0f, cos(t1)*0.5f);
+        geo_make_tri(geo, bottom_l, bottom_r, top_l);
+        geo_make_tri(geo, bottom_r, top_r, top_l);
+
+        geo_make_tri(geo, top_l, top_r, fan_center_top);
+        geo_make_tri(geo, bottom_l, fan_center_bottom, bottom_r);
+    }
+  }
+
   state = &state_memory;
   state->aspect = state->cam.aspect = 1;
   state->cam.fov = MATH_PI_2/4;
