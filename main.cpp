@@ -133,7 +133,7 @@ void tprintf(const char* format, T value, Targs... Fargs) {
 }
 
 struct Camera {
-  Vec3 rotation; // don't use the z component
+  Vec3 rotation; // don't use the z component (just don't)
   Vec3 position;
   float fov;
   float aspect;
@@ -164,7 +164,9 @@ void cam_move(Camera *cam, Vec3 rotation_delta, Vec3 position_delta) {
 }
 
 Mat4 cam_vp(Camera *cam) {
-  Vec3 eye = m4_rotate_y(cam->rotation.y) * m4_rotate_x(cam->rotation.x) * Vec3{0, 0, 1};
+  Vec3 eye = m4_rotate_y(cam->rotation.y) *
+             m4_rotate_x(cam->rotation.x) *
+             Vec3{0, 0, 1}                ;
   return m4_perspective(cam->fov, cam->aspect, 0.1, 1000.0) * m4_lookat(cam->position, cam->position+eye, {0, 1, 0});
 }
 
@@ -185,10 +187,15 @@ struct World {
 };
 
 struct State {
+  /* view */
   float aspect;
   Camera cam;
+
+  /* input */
   int old_mouse_x, old_mouse_y;
   bool keys[KEY_COUNT];
+
+  /* sim */
   Object leading_obj;
   World world;
 } *state;
@@ -204,7 +211,7 @@ int strcmp(const char *a, const char *b) {
 }
 
 void place_world_obj(World *world, Object obj) {
-  if (world->object_count >= 64) {
+  if (world->object_count >= OBJ_MAX) {
     tprintf("Too many obj on screen, can't put\n");
     return;
   }
@@ -244,10 +251,23 @@ PLATFORM_EXPORT void mousemove(int x, int y) {
   state->old_mouse_y = y;
 }
 
+static u16  ibuf[1 << 11]; static int i_used;
+static Vert vbuf[1 << 11]; static int v_used;
+
 void render_cube(Vec3 at, Vec3 rot) {
-  Mat4 vp = cam_vp(&state->cam);
   Mat4 m = m4_translate(at)*m4_rotate_yxz(rot);
-  render(cube_indices, sizeof cube_indices / sizeof cube_indices[0], cube_vertices, sizeof cube_vertices / sizeof cube_vertices[0], vp*m);
+
+  int n_vert = sizeof cube_vertices / sizeof cube_vertices[0];
+  int v_start = v_used;
+  for (int i = 0; i < n_vert; i++) {
+    Vert vert = cube_vertices[i];
+    vert.pos = m * vert.pos;
+    vbuf[v_used++] = vert;
+  }
+
+  int n_idx = sizeof cube_indices / sizeof cube_indices[0];
+  for (int i = 0; i < n_idx; i++)
+    ibuf[i_used++] = v_start + cube_indices[i];
 }
 
 PLATFORM_EXPORT void frame(float dt) {
@@ -257,6 +277,9 @@ PLATFORM_EXPORT void frame(float dt) {
      (state->keys[KEY_S] - state->keys[KEY_W]) * dt});
 
   static float theta = 0;
+
+  v_used = 0;
+  i_used = 0;
 
   theta += dt;
   for (int i = 0; i < state->world.object_count; ++i) {
@@ -268,6 +291,12 @@ PLATFORM_EXPORT void frame(float dt) {
   state->leading_obj.rot = {0, state->cam.rotation.y, 0};
 
   render_cube(state->leading_obj.pos, state->leading_obj.rot);
+
+  render(
+    ibuf, i_used,
+    vbuf, v_used,
+    cam_vp(&state->cam)
+  );
 }
 
 PLATFORM_EXPORT void init(void) {
