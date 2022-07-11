@@ -1,6 +1,7 @@
 #include "platform.h"
 
 
+#define MATH_TAU 6.283185307179586
 #define MATH_PI 3.141592653589793
 #define MATH_PI_2 1.5707963267948966
 

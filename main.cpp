@@ -142,7 +142,7 @@ void tprintf(const char* format, T value, Targs... Fargs) {
 }
 
 struct Camera {
-  Vec3 rotation; // don't use the z component
+  Vec3 rotation; // don't use the z component (just don't)
   Vec3 position;
   float fov;
   float aspect;
@@ -173,7 +173,9 @@ void cam_move(Camera *cam, Vec3 rotation_delta, Vec3 position_delta) {
 }
 
 Mat4 cam_vp(Camera *cam) {
-  Vec3 eye = m4_rotate_y(cam->rotation.y) * m4_rotate_x(cam->rotation.x) * Vec3{0, 0, 1};
+  Vec3 eye = m4_rotate_y(cam->rotation.y) *
+             m4_rotate_x(cam->rotation.x) *
+             Vec3{0, 0, 1}                ;
   return m4_perspective(cam->fov, cam->aspect, 0.1, 1000.0) * m4_lookat(cam->position, cam->position+eye, {0, 1, 0});
 }
 
@@ -194,11 +196,16 @@ struct World {
 };
 
 struct State {
+  /* view */
   float window_w, window_h;
   float aspect;
   Camera cam;
+
+  /* input */
   int old_mouse_x, old_mouse_y;
   bool keys[KEY_COUNT];
+
+  /* sim */
   Object leading_obj;
   World world;
 } *state;
@@ -256,10 +263,66 @@ PLATFORM_EXPORT void mousemove(int x, int y) {
   state->old_mouse_y = y;
 }
 
-void render_cube(Vec3 at, Vec3 rot) {
-  Mat4 vp = cam_vp(&state->cam);
+struct Geo {
+  int ibuf_len, vbuf_len;
+  u16 *ibuf;
+  Vert *vbuf;
+};
+
+static u16 geo_push_vert(Geo *geo, Vert v) {
+  u16 i = geo->vbuf_len;
+  geo->vbuf[geo->vbuf_len++] = v;
+  return i;
+}
+
+static void geo_make_tri(Geo *geo, u16 a, u16 b, u16 c) {
+  geo->ibuf[geo->ibuf_len++] = a;
+  geo->ibuf[geo->ibuf_len++] = b;
+  geo->ibuf[geo->ibuf_len++] = c;
+}
+
+
+static u16  __frame_ibuf[1 << 12];
+static Vert __frame_vbuf[1 << 12];
+Geo fgeo = {
+  .ibuf = __frame_ibuf,
+  .vbuf = __frame_vbuf,
+};
+
+enum Shape {
+  Shape_Cube,
+  Shape_Cylinder,
+  Shape_COUNT
+};
+static u16  __cyl_ibuf[1 << 7];
+static Vert __cyl_vbuf[1 << 7];
+
+Geo shape_geos[Shape_COUNT] = {
+  /*[Shape_Cube] = */{
+    .ibuf_len = sizeof cube_indices / sizeof cube_indices[0],
+    .vbuf_len = sizeof cube_vertices / sizeof cube_vertices[0],
+    .ibuf = cube_indices,
+    .vbuf = cube_vertices,
+  },
+  /*[Shape_Cylinder] = */{
+    .ibuf = __cyl_ibuf,
+    .vbuf = __cyl_vbuf
+  },
+};
+
+void render_shape(Shape shape, Vec3 at, Vec3 rot) {
   Mat4 m = m4_translate(at)*m4_rotate_yxz(rot);
-  render(cube_indices, sizeof cube_indices / sizeof cube_indices[0], cube_vertices, sizeof cube_vertices / sizeof cube_vertices[0], vp*m);
+  Geo *src = shape_geos + shape;
+
+  int v_start = fgeo.vbuf_len;
+  for (int i = 0; i < src->vbuf_len; i++) {
+    Vert vert = src->vbuf[i];
+    vert.pos = m * vert.pos;
+    fgeo.vbuf[fgeo.vbuf_len++] = vert;
+  }
+
+  for (int i = 0; i < src->ibuf_len; i++)
+    fgeo.ibuf[fgeo.ibuf_len++] = v_start + src->ibuf[i];
 }
 
 void memcpy(void *dest, const void *src, usize n) {
@@ -350,11 +413,13 @@ void render_debug_info(float dt) {
     "\t- Camera\n"
     "\t\t> Position: ({}, {}, {})\n"
     "\t\t> Rotation: ({}, {})\n"
-    "\t> DeltaTime: {}s\n", 
+    "\t> DeltaTime: {}s\n" 
+    "\t> GeoIndices: {}\n" 
+    "\t> GeoVertices: {}\n", 
     int(state->world.object_count),
     pos.x, pos.y, pos.z,
     int(rot.x*(180/MATH_PI)), int(rot.y*(180/MATH_PI)),
-    dt);
+    dt, int(fgeo.ibuf_len), int(fgeo.vbuf_len));
 }
 
 PLATFORM_EXPORT void frame(float dt) {
@@ -365,20 +430,56 @@ PLATFORM_EXPORT void frame(float dt) {
 
   static float theta = 0;
 
+  fgeo.vbuf_len = 0;
+  fgeo.ibuf_len = 0;
+
   theta += dt;
   for (int i = 0; i < state->world.object_count; ++i) {
     Object *obj = &state->world.objects[i];
-    render_cube(obj->pos, obj->rot);
+    render_shape(Shape_Cylinder, obj->pos, obj->rot);
   }
 
   state->leading_obj.pos = get_infront_of_camera(&state->cam, -5);
   state->leading_obj.rot = {0, state->cam.rotation.y, 0};
 
-  render_cube(state->leading_obj.pos, state->leading_obj.rot);
+  render_shape(Shape_Cylinder, state->leading_obj.pos, state->leading_obj.rot);
   render_debug_info(dt);
+
+  //render_shape(Shape_Cube, state->leading_obj.pos, state->leading_obj.rot);
+
+  render(
+    fgeo.ibuf, fgeo.ibuf_len,
+    fgeo.vbuf, fgeo.vbuf_len,
+    cam_vp(&state->cam)
+  );
 }
 
 PLATFORM_EXPORT void init(void) {
+  {
+    Geo *geo = shape_geos + Shape_Cylinder;
+    auto vert = [geo](float x, float y, float z, Vec3 norm = {0, 0, 1}) {
+      Vert v = {0};
+      v.pos = Vec3 { x, y, z };
+      v.color = 0.5f;
+      v.norm = norm;
+      return geo_push_vert(geo, v);
+    };
+    u16 fan_center_bottom = vert(0.0f, -0.5f, 0.0f, {0, -1, 0}),
+        fan_center_top    = vert(0.0f, 0.5f, 0.0f, {0, 1, 0});
+    for (float i = 0.0f; i < 10.0f; i += 1.0f) {
+        float t0 =  i         / 10.0f * MATH_TAU,
+              t1 = (i + 1.0f) / 10.0f * MATH_TAU;
+        u16 bottom_l = vert(sin(t0)*0.5f, -0.5f, cos(t0)*0.5f),
+            bottom_r = vert(sin(t1)*0.5f, -0.5f, cos(t1)*0.5f),
+               top_l = vert(sin(t0)*0.5f, 0.5f, cos(t0)*0.5f),
+               top_r = vert(sin(t1)*0.5f, 0.5f, cos(t1)*0.5f);
+        geo_make_tri(geo, bottom_r, top_r, top_l);
+        geo_make_tri(geo, bottom_l, bottom_r, top_l);
+        geo_make_tri(geo, bottom_l, fan_center_bottom, bottom_r);
+        geo_make_tri(geo, top_l, top_r, fan_center_top);
+    }
+  }
+
   state = &state_memory;
   state->aspect = state->cam.aspect = 1;
   state->cam.fov = MATH_PI_2/4;

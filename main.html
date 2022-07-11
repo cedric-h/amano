@@ -67,11 +67,16 @@ function renderHandler(indices, vertices, mvp) {
   renderer.draw(shader, buffer);
 }
 
-function frameHandler() {
+let last;
+function frameHandler(ts) {
+  last ??= ts;
+  const dt = ts - last;
+  last = ts;
+
   renderer.gl.clearColor(0.5, 0.4, 0.8, 1.0);
   renderer.gl.clear(renderer.gl.COLOR_BUFFER_BIT | renderer.gl.DEPTH_BUFFER_BIT);
 
-  wasm_instance.exports.frame(0.016); // TODO: Instead of defaulting to 60fps, find a way to get the actual delta
+  wasm_instance.exports.frame(dt * 0.001);
   window.requestAnimationFrame(frameHandler);
 }
 
