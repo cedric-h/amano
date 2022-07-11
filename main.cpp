@@ -202,7 +202,6 @@ struct State {
   Camera cam;
 
   /* input */
-  int old_mouse_x, old_mouse_y;
   bool keys[KEY_COUNT];
 
   /* sim */
@@ -255,11 +254,7 @@ PLATFORM_EXPORT void resize(int width, int height) {
 }
 
 PLATFORM_EXPORT void mousemove(int x, int y, int dx, int dy) {
-  if (!(state->old_mouse_x == 0 && state->old_mouse_y == 0)) { // fix moving from 0, 0
-    cam_move(&state->cam, {-float(dy)/300.0f, float(dx)/300.0f, 0}, {0, 0, 0});
-  }
-  state->old_mouse_x = x;
-  state->old_mouse_y = y;
+  cam_move(&state->cam, {-float(dy)/300.0f, float(dx)/300.0f, 0}, {0, 0, 0});
 }
 
 struct Geo {

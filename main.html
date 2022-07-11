@@ -132,10 +132,6 @@ window.addEventListener("load", () => {
 
       canvas.addEventListener("mousemove", (e) => {
         e.preventDefault()
-        var dx = e.movementX, dy = e.movementY;
-        if (dx*dx+dy*dy > 300*300) {
-          console.log(`dx ${dx} dy ${dy}\n`);
-        }
         wasm_instance.exports.mousemove(e.offsetX, e.offsetY, e.movementX, e.movementY);
       })
 
