@@ -282,8 +282,8 @@ static void geo_make_tri(Geo *geo, u16 a, u16 b, u16 c) {
 }
 
 
-#define FRAME_VBUF_SIZE (1 << 15)
-#define FRAME_IBUF_SIZE (1 << 15)
+#define FRAME_VBUF_SIZE (1 << 12)
+#define FRAME_IBUF_SIZE (1 << 12)
 
 static u16  __frame_ibuf[FRAME_VBUF_SIZE];
 static Vert __frame_vbuf[FRAME_IBUF_SIZE];
@@ -291,6 +291,7 @@ Geo fgeo = {
   .ibuf = __frame_ibuf,
   .vbuf = __frame_vbuf,
 };
+static int fgeo_flush_generation = 0;
 
 enum Shape {
   Shape_Cube,
@@ -313,26 +314,43 @@ Geo shape_geos[Shape_COUNT] = {
   },
 };
 
+void flush_fgeo() {
+  render(
+    fgeo.ibuf, fgeo.ibuf_len,
+    fgeo.vbuf, fgeo.vbuf_len,
+    cam_vp(&state->cam)
+  );
+  fgeo.vbuf_len = 0;
+  fgeo.ibuf_len = 0;
+  fgeo_flush_generation += 1;
+}
+
 void render_shape(Shape shape, Mat4 m) {
   Geo *src = shape_geos + shape;
+
+  if ((src->ibuf_len + fgeo.ibuf_len) >= FRAME_IBUF_SIZE) {
+    flush_fgeo();
+    if ((src->ibuf_len + fgeo.ibuf_len) >= FRAME_IBUF_SIZE) {
+      tprintf("Shape {} is too big to fit\n", shape);
+      return;
+    }
+  }
+  if ((src->vbuf_len + fgeo.vbuf_len) >= FRAME_VBUF_SIZE) {
+    flush_fgeo();
+    if ((src->vbuf_len + fgeo.vbuf_len) >= FRAME_VBUF_SIZE) {
+      tprintf("Shape {} is too big to fit\n", shape);
+      return;
+    }
+  }
 
   int v_start = fgeo.vbuf_len;
   for (int i = 0; i < src->vbuf_len; i++) {
     Vert vert = src->vbuf[i];
     vert.pos = m * vert.pos;
-    if (fgeo.vbuf_len >= FRAME_VBUF_SIZE) {
-
-      tprintf("Vertex buffer exhausted\n");
-      return;
-    }
     fgeo.vbuf[fgeo.vbuf_len++] = vert;
   }
 
   for (int i = 0; i < src->ibuf_len; i++) {
-    if (fgeo.ibuf_len >= FRAME_IBUF_SIZE) {
-      tprintf("Index buffer exhausted\n");
-      return;
-    }
     fgeo.ibuf[fgeo.ibuf_len++] = v_start + src->ibuf[i];
   }
 }
@@ -425,11 +443,15 @@ void render_debug_info(float dt) {
     "\t\t> Rotation: ({}, {})\n"
     "\t> DeltaTime: {}s\n" 
     "\t> GeoIndices: {}\n" 
-    "\t> GeoVertices: {}\n", 
+    "\t> GeoVertices: {}\n"
+    "\t> GeoFlushGen: {}\n", 
     int(state->world.object_count),
     pos.x, pos.y, pos.z,
     int(rot.x*(180/MATH_PI)), int(rot.y*(180/MATH_PI)),
-    dt, int(fgeo.ibuf_len), int(fgeo.vbuf_len));
+    dt,
+    int(fgeo.ibuf_len),
+    int(fgeo.vbuf_len),
+    fgeo_flush_generation);
 }
 
 PLATFORM_EXPORT void frame(float dt) {
@@ -440,9 +462,7 @@ PLATFORM_EXPORT void frame(float dt) {
 
   static float theta = 0;
 
-  fgeo.vbuf_len = 0;
-  fgeo.ibuf_len = 0;
-
+  fgeo_flush_generation = 0;
   theta += dt;
   for (int i = 0; i < state->world.object_count; ++i) {
     Object *obj = &state->world.objects[i];
@@ -453,14 +473,11 @@ PLATFORM_EXPORT void frame(float dt) {
   state->leading_obj.rot = {0, state->cam.rotation.y, 0};
 
   render_shape(Shape_Cylinder, state->leading_obj.pos, state->leading_obj.rot);
-  render_debug_info(dt);
 
   //render_shape(Shape_Cube, state->leading_obj.pos, state->leading_obj.rot);
-  render(
-    fgeo.ibuf, fgeo.ibuf_len,
-    fgeo.vbuf, fgeo.vbuf_len,
-    cam_vp(&state->cam)
-  );
+  flush_fgeo();
+
+  render_debug_info(dt);
 }
 
 PLATFORM_EXPORT void init(void) {
