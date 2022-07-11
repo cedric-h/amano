@@ -282,8 +282,11 @@ static void geo_make_tri(Geo *geo, u16 a, u16 b, u16 c) {
 }
 
 
-static u16  __frame_ibuf[1 << 12];
-static Vert __frame_vbuf[1 << 12];
+#define FRAME_VBUF_SIZE (1 << 15)
+#define FRAME_IBUF_SIZE (1 << 15)
+
+static u16  __frame_ibuf[FRAME_VBUF_SIZE];
+static Vert __frame_vbuf[FRAME_IBUF_SIZE];
 Geo fgeo = {
   .ibuf = __frame_ibuf,
   .vbuf = __frame_vbuf,
@@ -310,25 +313,32 @@ Geo shape_geos[Shape_COUNT] = {
   },
 };
 
-void render_shape(Shape shape, Vec3 at, Vec3 rot) {
-  Mat4 m = m4_translate(at)*m4_rotate_yxz(rot);
+void render_shape(Shape shape, Mat4 m) {
   Geo *src = shape_geos + shape;
 
   int v_start = fgeo.vbuf_len;
   for (int i = 0; i < src->vbuf_len; i++) {
     Vert vert = src->vbuf[i];
     vert.pos = m * vert.pos;
+    if (fgeo.vbuf_len >= FRAME_VBUF_SIZE) {
+
+      tprintf("Vertex buffer exhausted\n");
+      return;
+    }
     fgeo.vbuf[fgeo.vbuf_len++] = vert;
   }
 
-  for (int i = 0; i < src->ibuf_len; i++)
+  for (int i = 0; i < src->ibuf_len; i++) {
+    if (fgeo.ibuf_len >= FRAME_IBUF_SIZE) {
+      tprintf("Index buffer exhausted\n");
+      return;
+    }
     fgeo.ibuf[fgeo.ibuf_len++] = v_start + src->ibuf[i];
+  }
 }
 
-void memcpy(void *dest, const void *src, usize n) {
-  while (n--) {
-    *(u8*)dest = *(u8*)src;
-  }
+void render_shape(Shape shape, Vec3 at, Vec3 rot) {
+  render_shape(shape, m4_translate(at)*m4_rotate_yxz(rot));
 }
 
 void render_8x8_bitmap(const u8 *bitmap, float x, float y, float w, float h) {
@@ -387,7 +397,7 @@ void render_8x16ascii_text(const char *txt, int x, int y) {
   for (;*txt; txt++) {
     if (*txt == '\n') {
       x = init_x;
-      y += 18;
+      y += 16;
       column = 0;
     } else if (*txt == '\t') {
       x += 8 * (2 - (column % 2));
@@ -446,7 +456,6 @@ PLATFORM_EXPORT void frame(float dt) {
   render_debug_info(dt);
 
   //render_shape(Shape_Cube, state->leading_obj.pos, state->leading_obj.rot);
-
   render(
     fgeo.ibuf, fgeo.ibuf_len,
     fgeo.vbuf, fgeo.vbuf_len,
@@ -483,5 +492,5 @@ PLATFORM_EXPORT void init(void) {
   state = &state_memory;
   state->aspect = state->cam.aspect = 1;
   state->cam.fov = MATH_PI_2/4;
-  state->cam.position.z = 5;
+  state->cam.position.z = 0;
 }
