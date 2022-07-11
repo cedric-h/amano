@@ -1,9 +1,6 @@
 #include "platform.h"
-#include "math.hpp"
-
-#define LOG_CACHE_SIZE (1 << 11)
-static char log_cache[LOG_CACHE_SIZE];
-static usize log_cache_length = 0;
+#include "math.h"
+#include "gen.h"
 
 Vert cube_vertices[] = {
   // pos                normal    value
@@ -53,12 +50,24 @@ u16 cube_indices[] = {
   22, 21, 20,  23, 22, 20  // -y
 };
 
+#define LOG_CACHE_SIZE (1 << 11)
+static char log_cache[LOG_CACHE_SIZE+1];
+static usize log_cache_length = 0;
+static bool log_noflush = false;
+
+char *flush() {
+  log_cache[log_cache_length] = 0;
+  log_cache_length = 0;
+
+  return log_cache;
+}
+
 void putval(char c) {
   if (log_cache_length >= LOG_CACHE_SIZE) {
     console_log_n("Log cache exhausted", 19);
     return;
   }
-  if (c == '\n') {
+  if (c == '\n' && log_noflush == false) {
     console_log_n(log_cache, log_cache_length);
     log_cache_length = 0;
   } else {
@@ -179,12 +188,13 @@ struct Object {
 };
 
 struct World {
-#define OBJ_MAX 64
+#define OBJ_MAX 1024
   Object objects[OBJ_MAX];
   usize object_count;
 };
 
 struct State {
+  float window_w, window_h;
   float aspect;
   Camera cam;
   int old_mouse_x, old_mouse_y;
@@ -204,7 +214,7 @@ int strcmp(const char *a, const char *b) {
 }
 
 void place_world_obj(World *world, Object obj) {
-  if (world->object_count >= 64) {
+  if (world->object_count >= OBJ_MAX) {
     tprintf("Too many obj on screen, can't put\n");
     return;
   }
@@ -226,12 +236,14 @@ PLATFORM_EXPORT void keyhit(bool down, const char *scancode) {
     }
   }
 
-  if (strcmp(scancode, "KeyF") == 0 && !down) {
+  if (strcmp(scancode, "KeyF") == 0 && down) {
     place_world_obj(&state->world, state->leading_obj);
   }
 }
 
 PLATFORM_EXPORT void resize(int width, int height) {
+  state->window_w = width;
+  state->window_h = height;
   state->aspect = state->cam.aspect = width / float(height);
 }
 
@@ -248,6 +260,101 @@ void render_cube(Vec3 at, Vec3 rot) {
   Mat4 vp = cam_vp(&state->cam);
   Mat4 m = m4_translate(at)*m4_rotate_yxz(rot);
   render(cube_indices, sizeof cube_indices / sizeof cube_indices[0], cube_vertices, sizeof cube_vertices / sizeof cube_vertices[0], vp*m);
+}
+
+void memcpy(void *dest, const void *src, usize n) {
+  while (n--) {
+    *(u8*)dest = *(u8*)src;
+  }
+}
+
+void render_8x8_bitmap(const u8 *bitmap, float x, float y, float w, float h) {
+  Vert base[4] = {
+    {{0, 0, -1}, {1, 1, 1}, 1},
+    {{0, -1, -1}, {1, 1, 1}, 1},
+    {{1, -1, -1}, {1, 1, 1}, 1},
+    {{1, 0, -1}, {1, 1, 1}, 1},
+  };
+
+  u16 base_indices[6] = {
+    0, 2, 1,
+    0, 3, 2,
+  };
+
+  Vert out[4*8*8];
+  int out_count = 0;
+  u16 out_indices[6*8*8];
+  int out_indices_count = 0;
+
+  for (int x = 0; x < 8; ++x) {
+    for (int y = 0; y < 8; ++y) {
+      bool set = bitmap[y] & (1 << x);
+      if (set) {
+        for (int i = 0; i < 4; ++i) {
+          Vert vertex = base[i];
+          vertex.pos += {float(x), float(-y), 0};
+          out[i+out_count] = vertex;
+        }
+        for (int i = 0; i < 6; ++i) {
+          out_indices[i+out_indices_count] = base_indices[i]+out_count;
+        }
+        out_count += 4;
+        out_indices_count += 6;
+      }
+    }
+  }
+
+  w /= 8;
+  h /= 8;
+
+  Mat4 rectMat = {
+    w/state->window_w*2.0f, 0, 0, 0,
+    0, h/state->window_h*2.0f, 0, 0,
+    0, 0, 1, 0,
+    x/state->window_w*2.0f-1.0f, (-y)/state->window_h*2.0f+1.0f, 0, 1
+  };
+
+  render(out_indices, out_indices_count, out, out_count, rectMat);
+}
+
+void render_8x16ascii_text(const char *txt, int x, int y) {
+  int cx, cy, set;
+  int init_x = x;
+  int column = 0;
+  for (;*txt; txt++) {
+    if (*txt == '\n') {
+      x = init_x;
+      y += 18;
+      column = 0;
+    } else if (*txt == '\t') {
+      x += 8 * (2 - (column % 2));
+      column += 2 - (column % 2);
+    } else {
+      column += 1;
+      render_8x8_bitmap(gen_font8x8_basic.data[*txt], x, y, 8, 16);
+      x += 8;
+    }
+  }
+}
+
+// NOTE: THIS IS A HACK!
+#define PUT_DEBUG_TEXT(x, y, args...) do {log_noflush = true; tprintf(args); log_noflush = false; render_8x16ascii_text(flush(), (x), (y));} while(0);
+
+void render_debug_info(float dt) {
+  Vec3 pos = state->cam.position;
+  Vec3 rot = state->cam.rotation;
+
+  PUT_DEBUG_TEXT(20, 20, 
+    "- Debug Info\n"
+    "\t> Object count: {}\n"
+    "\t- Camera\n"
+    "\t\t> Position: ({}, {}, {})\n"
+    "\t\t> Rotation: ({}, {})\n"
+    "\t> DeltaTime: {}s\n", 
+    int(state->world.object_count),
+    pos.x, pos.y, pos.z,
+    int(rot.x*(180/MATH_PI)), int(rot.y*(180/MATH_PI)),
+    dt);
 }
 
 PLATFORM_EXPORT void frame(float dt) {
@@ -268,6 +375,7 @@ PLATFORM_EXPORT void frame(float dt) {
   state->leading_obj.rot = {0, state->cam.rotation.y, 0};
 
   render_cube(state->leading_obj.pos, state->leading_obj.rot);
+  render_debug_info(dt);
 }
 
 PLATFORM_EXPORT void init(void) {

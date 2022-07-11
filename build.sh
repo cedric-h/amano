@@ -7,7 +7,7 @@ do
   zig build-lib \
     -O Debug \
     -rdynamic \
-    -dynamic -target wasm32-freestanding ../main.cpp ../platform.cpp
+    -dynamic -target wasm32-freestanding ../main.cpp ../platform.cpp ../gen.cpp
 
   sleep 1
 done
