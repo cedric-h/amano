@@ -131,6 +131,14 @@ window.addEventListener("load", () => {
         withString(e.code, (s) => wasm_instance.exports.keyhit(false, s))
       })
 
+      canvas.addEventListener("mousedown", (e) => {
+        wasm_instance.exports.mousehit(true, e.button);
+      })
+
+      canvas.addEventListener("mouseup", (e) => {
+        wasm_instance.exports.mousehit(false, e.button);
+      })
+
       canvas.addEventListener("mousemove", (e) => {
         e.preventDefault()
         var dx = e.movementX, dy = e.movementY;

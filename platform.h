@@ -44,6 +44,12 @@ PLATFORM_EXPORT void init(void);
 PLATFORM_EXPORT void frame(float dt); // expected to call `render`
 PLATFORM_EXPORT void keyhit(bool down, const char *scancode);
 PLATFORM_EXPORT void resize(int width, int height);
+
+/* down = was pressed or released
+ * button = which button
+ *  0: left, 1: middle, 2: right, 3: button4 (side button), 4: button5 (side button)
+ */
+PLATFORM_EXPORT void mousehit(bool down, int button);
 PLATFORM_EXPORT void mousemove(int x, int y, int dx, int dy);
 
 PLATFORM_IMPORT void render(
