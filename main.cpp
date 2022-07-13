@@ -148,7 +148,7 @@ struct State {
   bool keys[Key_COUNT];
 
   /* sim */
-  bool is_placing;
+  bool is_placing_floor;
   Object placing_obj;
   Object *facing_obj; 
 
@@ -265,9 +265,24 @@ void render_shape_colored(Shape shape, Mat4 m, float color) {
     }
   }
 
+  // Reassign normals. NOTE: mutates original geo normals!
+  for (int i = 0; i < src->ibuf_len; i += 3) {
+    Vert *a = &src->vbuf[src->ibuf[i]],
+         *b = &src->vbuf[src->ibuf[i+1]],
+         *c = &src->vbuf[src->ibuf[i+2]];
+    Vec3 ap = a->pos * m,
+         bp = b->pos * m,
+         cp = c->pos * m;
+
+    Vec3 normal = v3_normalize(v3_cross(ap-cp, bp-cp));
+    a->norm = b->norm = c->norm = normal;
+  }
+
+
   int v_start = fgeo.vbuf_len;
   for (int i = 0; i < src->vbuf_len; i++) {
     Vert vert = src->vbuf[i];
+    vert.norm = vert.norm;
     vert.color = color;
     vert.pos = m * vert.pos;
     fgeo.vbuf[fgeo.vbuf_len++] = vert;
@@ -394,7 +409,7 @@ float object_distance(Object *a, Vec3 b) {
 }
 
 Mat4 object_model(Object *obj) {
-  return m4_scale(obj->scale) * m4_translate(obj->pos) * m4_rotate_yxz(obj->rot);
+  return m4_translate(obj->pos) * m4_scale(obj->scale) * m4_rotate_yxz(obj->rot);
 }
 
 Object *find_focus_obj(Vec3 to) {
@@ -536,7 +551,7 @@ PLATFORM_EXPORT void frame(float dt) {
   theta += dt;
 
   state->facing_obj = nullptr;
-  state->is_placing = false;
+  state->is_placing_floor = false;
 
   if (state->inventory.items[Item_Wood] > 0) {
     Object *focus = find_focus_obj(state->cam.position);
@@ -544,7 +559,7 @@ PLATFORM_EXPORT void frame(float dt) {
       state->placing_obj = make_aligned_object(focus, &state->cam);
       Object *maybe_occlusion = find_focus_obj(state->placing_obj.pos);
       if (object_distance(&state->placing_obj, maybe_occlusion) > 0.99) { // find if we placed the block here (ERROR PRONE TEMPORARY)
-        state->is_placing = true;
+        state->is_placing_floor = true;
       }
     }
   }
@@ -555,14 +570,14 @@ PLATFORM_EXPORT void frame(float dt) {
       Mat4 transform = m4_rotate_yxz(obj->rot) * m4_scale({1/obj->scale.x, 1/obj->scale.y, 1/obj->scale.z});
       if (ray_vs_box(cam_ray(&state->cam), expand_box_from_point(obj->pos, 0.5), transform)) {
         if (state->facing_obj == nullptr) {
-          state->is_placing = false;
+          state->is_placing_floor = false;
           state->facing_obj = obj;
         } else {
           float distance_a = object_distance(state->facing_obj, state->cam.position);
           float distance_b = object_distance(obj, state->cam.position);
           if (distance_b < distance_a) {
             render_obj(state->facing_obj);
-            state->is_placing = false;
+            state->is_placing_floor = false;
             state->facing_obj = obj;
           } else {
             render_obj(obj);
@@ -578,7 +593,7 @@ PLATFORM_EXPORT void frame(float dt) {
     render_obj(state->facing_obj, 0.3);
   }
 
-  if (state->is_placing) {
+  if (state->is_placing_floor) {
     render_obj(&state->placing_obj, 0.5);
   }
 
@@ -621,7 +636,7 @@ PLATFORM_EXPORT void init(void) {
   state->aspect = state->cam.aspect = 1;
   state->cam.fov = MATH_PI_2/2;
   state->cam.position.y = 2;
-  state->inventory.items[Item_Wood] = 5;
+  state->inventory.items[Item_Wood] = 0;
 
   Object dirt_obj = default_obj(Shape_Cylinder);
   dirt_obj.unbreakable = true;
@@ -664,13 +679,23 @@ PLATFORM_EXPORT void mousemove(int x, int y, int dx, int dy) {
 }
 
 PLATFORM_EXPORT void mousehit(bool down, int button) {
+  // Wall placement
+  if (down && button == 2 && is_object_valid(state->facing_obj) && state->inventory.items[Item_Wood] > 0) {
+    Object new_obj = default_obj(Shape_Cube);
+    new_obj.drop = Item_Wood;
+    new_obj.rot = state->facing_obj->rot;
+    new_obj.scale.y = 2.0;
+    new_obj.pos = state->facing_obj->pos + Vec3{0, 1.5, 0};
+    state->inventory.items[Item_Wood] -= 1;
+    place_world_obj(&state->world, new_obj);
+  }
   if (down && button == 0 && is_object_valid(state->facing_obj)) {
     if (state->facing_obj->unbreakable == false) {
       state->facing_obj->exists = false;
     }
     state->inventory.items[state->facing_obj->drop] += 1;
   }
-  if (state->is_placing && down && button == 2 && state->inventory.items[Item_Wood] > 0) {
+  if (state->is_placing_floor && down && button == 2 && state->inventory.items[Item_Wood] > 0) {
     state->inventory.items[Item_Wood] -= 1;
     place_world_obj(&state->world, state->placing_obj);
   }
