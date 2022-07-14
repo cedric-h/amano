@@ -142,6 +142,16 @@ inline Mat4 m4_rotation2d(float theta) {
   };
 }
 
+// TODO: This function doesn't work, think why?
+inline Mat4 m4_perspective2(float l, float t, float r, float b, float near, float far) {
+  return {{
+    {near*2/(r-l),    0,             0,                        0},
+    {0,               near*2/(t-b),  0,                        0},
+    {(r+l)/(r-l),     (t+b)/(t-b),  -(far+near)/(far-near),   -1.0f},
+    {0,               0,            -(2*far*near)/(far-near),  0}
+  }};
+}
+
 inline Mat4 m4_perspective(float fov, float aspect, float near, float far) {
   float height = cos(fov) / sin(fov);
   float width = height / aspect;

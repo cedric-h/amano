@@ -109,6 +109,20 @@ window.addEventListener("load", () => {
           let mvp = new Float32Array(instance.exports.memory.buffer, m, 16);
           renderHandler(indices, vertices, mvp)
         },
+        select: (k, v) => {
+          switch (k) {
+            case 0: // Depth Test
+              if (v) {
+                renderer.gl.enable(renderer.gl.DEPTH_TEST);
+              } else {
+                renderer.gl.disable(renderer.gl.DEPTH_TEST);
+              }
+              break;
+            default: 
+              console.warn("Invalid select key "+k);
+              break;
+          }
+        },
         console_log_n: (s, l) => console.log(new TextDecoder().decode(new Int8Array(instance.exports.memory.buffer, s, l)))
       } });
 

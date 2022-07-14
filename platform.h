@@ -58,5 +58,13 @@ PLATFORM_IMPORT void render(
   Mat4  mvp
 );
 
+enum SelectKey {
+  SelectKey_DepthTest = 0,
+};
+
+PLATFORM_IMPORT void select(
+  int select_key, bool value
+);
+
 PLATFORM_IMPORT void console_log_n(const char *string, usize strlen);
 #endif

@@ -52,17 +52,71 @@ u16 cube_indices[] = {
 };
 
 enum Item {
+  Item_NULL,
   Item_Wood,
+  Item_Leaves,
   Item_COUNT,
 };
 
 const char *item_names[] = {
-  /*[Item_Wood] = */ "Wood"
+  "NULL",
+  /*[Item_Wood] = */ "Wood",
+  /*[Item_Leaves] = */ "Leaves"
 };
 
-struct Inventory {
-  int items[Item_COUNT];
+struct ItemStack {
+  Item item_type;
+  usize item_count;
 };
+
+#define INVENTORY_ITEM_COUNT 2
+
+struct Inventory {
+  usize selection;
+  ItemStack items[INVENTORY_ITEM_COUNT];
+};
+
+ItemStack itemstack_null() {
+  return {Item_NULL, 0};
+}
+
+ItemStack itemstack_remove(ItemStack *stack, usize n) {
+  Item type = stack->item_type;
+
+  if (stack->item_count < n) {
+    return itemstack_null();
+  }
+
+  stack->item_count -= n;
+
+  if (stack->item_count == 0) {
+    stack->item_type = Item_NULL;
+  }
+
+  return {type, n};
+}
+
+bool inv_put(Inventory *inv, ItemStack stack) {
+  for (int i = 0; i < INVENTORY_ITEM_COUNT; ++i) {
+    if (inv->items[i].item_type == stack.item_type) {
+      inv->items[i].item_count += stack.item_count;
+      break;
+    } else if (inv->items[i].item_type == Item_NULL) {
+      inv->items[i] = stack;
+      break;
+    }
+  }
+  return false;
+}
+
+// removes one selected item from the inventory and returns the item stack with just one item or none if nothing
+ItemStack inv_eject(Inventory *inv) {
+  return itemstack_remove(&inv->items[inv->selection], 1);
+}
+
+ItemStack *inv_hand(Inventory *inv) {
+  return &inv->items[inv->selection];
+}
 
 struct Camera {
   Vec3 rotation; // don't use the z component (just don't)
@@ -146,6 +200,7 @@ struct State {
 
   /* input */
   bool keys[Key_COUNT];
+  float time;
 
   /* sim */
   bool is_placing_floor;
@@ -172,7 +227,6 @@ Object default_obj(Shape shape) {
   Object result = {};
   result.shape = shape;
   result.scale = {1.0, 1.0, 1.0};
-  result.drop = Item_COUNT;
   return result;
 }
 
@@ -218,7 +272,7 @@ Geo fgeo = {
   .vbuf = __frame_vbuf,
 };
 static int fgeo_flush_generation = 0;
-
+static Mat4 fgeo_vp;
 
 static u16  __cyl_ibuf[1 << 7];
 static Vert __cyl_vbuf[1 << 7];
@@ -240,11 +294,16 @@ void flush_fgeo() {
   render(
     fgeo.ibuf, fgeo.ibuf_len,
     fgeo.vbuf, fgeo.vbuf_len,
-    cam_vp(&state->cam)
+    fgeo_vp
   );
   fgeo.vbuf_len = 0;
   fgeo.ibuf_len = 0;
   fgeo_flush_generation += 1;
+}
+
+void fgeo_set_vp(Mat4 vp) {
+  flush_fgeo();
+  fgeo_vp = vp;
 }
 
 void render_shape_colored(Shape shape, Mat4 m, float color) {
@@ -512,6 +571,70 @@ Ray cam_ray(Camera *cam) {
   return {cam->position, m4_rotate_y(cam->rotation.y) * m4_rotate_x(cam->rotation.x) * Vec3{0, 0, 1}};
 }
 
+Mat4 rect_vp_matrix(int x, int y, int w, int h, float fov) {
+  x += w/2;
+  y += h/2;
+  float x_ = float(x) / state->window_w;
+  float y_ = float(y) / state->window_h;
+  x_ *= 2;
+  x_ -= 1;
+  y_ *= 2;
+  y_ -= 1;
+  static float n = 0.0;
+  return m4_translate({x_, -y_, 0}) * m4_perspective(fov, float(state->window_w)/float(state->window_h), 0.1, 1000.0) * m4_lookat({0, 0, 0}, {0, 0, 1}, {0, 1, 0});
+}
+
+void render_inventory(Inventory *inv) {
+  const u8 selected_bitmap[] = {
+    0b11111111,
+    0b11111111,
+    0b11111111,
+    0b11111111,
+    0b11111111,
+    0b11111111,
+    0b11111111,
+    0b11111111,
+  };
+  const u8 not_selected_bitmap[] = {
+    0b11111111,
+    0b10000001,
+    0b10000001,
+    0b10000001,
+    0b10000001,
+    0b10000001,
+    0b10000001,
+    0b11111111,
+  };
+
+  // FIXME: The depth test toggling here seems kinda bad
+  flush_fgeo();
+  select(SelectKey_DepthTest, false);
+  for (int i = 0; i < INVENTORY_ITEM_COUNT; ++i) {
+    ItemStack slot = inv->items[i];
+    if (slot.item_type != Item_NULL) {
+      PUT_DEBUG_TEXT(20 + i * 80, state->window_h-32-32-16, "{} x{}", item_names[slot.item_type], int(slot.item_count));
+    }
+    int x = 20 + i * 80;
+    int y = state->window_h-32-32;
+
+    render_8x8_bitmap(inv->selection == i ? selected_bitmap : not_selected_bitmap, x, y, 64, 64);
+
+    switch (slot.item_type) {
+      case Item_Leaves:
+        fgeo_set_vp(rect_vp_matrix(x, y, 64, 64, 1));
+        render_shape_colored(Shape_Cylinder, m4_translate({0, 0, 10}) * m4_rotate_x(-1) * m4_rotate_y(state->time), 1.0f);
+        break;
+      case Item_Wood:
+        fgeo_set_vp(rect_vp_matrix(x, y, 64, 64, 1));
+        render_shape_colored(Shape_Cube, m4_translate({0, 0, 10}) * m4_rotate_x(-1) * m4_rotate_y(state->time), 1.0f);
+        break;
+      default:;
+    }
+  }
+  flush_fgeo();
+  select(SelectKey_DepthTest, true);
+}
+
 void render_overlays(float dt) {
   // Debug
   render_debug_info(dt);
@@ -529,21 +652,63 @@ void render_overlays(float dt) {
   };
   render_8x8_bitmap(cursor_bitmap, state->window_w/2-8,  state->window_h/2-8, 16, 16);
 
-  // Inventory
-  for (int i = 0; i < Item_COUNT; ++i) {
-    PUT_DEBUG_TEXT(20 + i * 100, state->window_h-32, "{} x{}", item_names[i], state->inventory.items[i]);
-  }
+  render_inventory(&state->inventory);
 }
 
 void render_obj(Object *obj, float color = 1.0f) {
   render_shape_colored(obj->shape, object_model(obj), color);
 }
 
+void handle_block_gizmos() {
+  ItemStack *hand = inv_hand(&state->inventory);
+
+  switch (hand->item_type) {
+    case Item_Wood: {
+      Object *focus = find_focus_obj(state->cam.position);
+      if (focus != nullptr) {
+        state->placing_obj = make_aligned_object(focus, &state->cam);
+        Object *maybe_occlusion = find_focus_obj(state->placing_obj.pos);
+        if (object_distance(&state->placing_obj, maybe_occlusion) > 0.99) { // find if we placed the block here (ERROR PRONE TEMPORARY)
+          state->is_placing_floor = true;
+        }
+      }
+    } break;
+    default:
+      break;
+  }
+}
+
+bool handle_block_placement(ItemStack item) {
+  switch (item.item_type) {
+    case Item_Wood: {
+      if (is_object_valid(state->facing_obj)) {
+        Object new_obj = default_obj(Shape_Cube);
+        new_obj.drop = Item_Wood;
+        new_obj.rot = state->facing_obj->rot;
+        new_obj.scale.y = 2.0;
+        new_obj.pos = state->facing_obj->pos + Vec3{0, 1.5, 0};
+        place_world_obj(&state->world, new_obj);
+        return true;
+      } else if (state->is_placing_floor) {
+        place_world_obj(&state->world, state->placing_obj);
+        return true;
+      }
+    } break;
+    default: 
+      break;
+  }
+
+  return false;
+}
+
 PLATFORM_EXPORT void frame(float dt) {
+  state->time += dt;
   cam_move(&state->cam, {0, 0, 0}, 
     {(state->keys[Key_D] - state->keys[Key_A]) * dt,
      (state->keys[Key_Space] - state->keys[Key_Shift]) * dt,
      (state->keys[Key_W] - state->keys[Key_S]) * dt});
+
+  fgeo_set_vp(cam_vp(&state->cam));
 
   static float theta = 0;
 
@@ -553,16 +718,7 @@ PLATFORM_EXPORT void frame(float dt) {
   state->facing_obj = nullptr;
   state->is_placing_floor = false;
 
-  if (state->inventory.items[Item_Wood] > 0) {
-    Object *focus = find_focus_obj(state->cam.position);
-    if (focus != nullptr) {
-      state->placing_obj = make_aligned_object(focus, &state->cam);
-      Object *maybe_occlusion = find_focus_obj(state->placing_obj.pos);
-      if (object_distance(&state->placing_obj, maybe_occlusion) > 0.99) { // find if we placed the block here (ERROR PRONE TEMPORARY)
-        state->is_placing_floor = true;
-      }
-    }
-  }
+  handle_block_gizmos();
 
   for (int i = 0; i < state->world.object_count; ++i) {
     Object *obj = &state->world.objects[i];
@@ -636,7 +792,6 @@ PLATFORM_EXPORT void init(void) {
   state->aspect = state->cam.aspect = 1;
   state->cam.fov = MATH_PI_2/2;
   state->cam.position.y = 2;
-  state->inventory.items[Item_Wood] = 0;
 
   Object dirt_obj = default_obj(Shape_Cylinder);
   dirt_obj.unbreakable = true;
@@ -646,10 +801,18 @@ PLATFORM_EXPORT void init(void) {
   Object tree_obj = default_obj(Shape_Cube);
   tree_obj.drop = Item_Wood;
   tree_obj.unbreakable = true;
-  tree_obj.scale = {0.2, 1.0, 0.2};
-  tree_obj.pos.y = 1.0f;
+  tree_obj.scale = {0.2, 4.0, 0.2};
+  tree_obj.pos.y = 2.0f;
 
   place_world_obj(&state->world, tree_obj);
+
+  Object leaves_obj = default_obj(Shape_Cylinder);
+  leaves_obj.drop = Item_Leaves;
+  leaves_obj.unbreakable = false;
+  leaves_obj.scale = {1.0, 2.0, 1.0};
+  leaves_obj.pos.y = 3.0f;
+  place_world_obj(&state->world, leaves_obj);
+
 }
 
 PLATFORM_EXPORT void keyhit(bool down, const char *scancode) {
@@ -661,10 +824,19 @@ PLATFORM_EXPORT void keyhit(bool down, const char *scancode) {
   map[Key_A] = "KeyA";
   map[Key_D] = "KeyD";
 
+
   for (int i = 0; i < Key_COUNT; ++i) {
     if (strcmp(scancode, map[i]) == 0) {
       state->keys[i] = down;
     }
+  }
+
+  if (strcmp(scancode, "Digit1") == 0 && down) {
+    state->inventory.selection = 0;
+  }
+
+  if (strcmp(scancode, "Digit2") == 0 && down) {
+    state->inventory.selection = 1;
   }
 }
 
@@ -680,24 +852,18 @@ PLATFORM_EXPORT void mousemove(int x, int y, int dx, int dy) {
 
 PLATFORM_EXPORT void mousehit(bool down, int button) {
   // Wall placement
-  if (down && button == 2 && is_object_valid(state->facing_obj) && state->inventory.items[Item_Wood] > 0) {
-    Object new_obj = default_obj(Shape_Cube);
-    new_obj.drop = Item_Wood;
-    new_obj.rot = state->facing_obj->rot;
-    new_obj.scale.y = 2.0;
-    new_obj.pos = state->facing_obj->pos + Vec3{0, 1.5, 0};
-    state->inventory.items[Item_Wood] -= 1;
-    place_world_obj(&state->world, new_obj);
+  if (down && button == 2) {
+    ItemStack ejected = inv_eject(&state->inventory);
+    if (handle_block_placement(ejected) == false) {
+      // put back if failed
+      inv_put(&state->inventory, ejected);
+    }
   }
   if (down && button == 0 && is_object_valid(state->facing_obj)) {
     if (state->facing_obj->unbreakable == false) {
       state->facing_obj->exists = false;
     }
-    state->inventory.items[state->facing_obj->drop] += 1;
-  }
-  if (state->is_placing_floor && down && button == 2 && state->inventory.items[Item_Wood] > 0) {
-    state->inventory.items[Item_Wood] -= 1;
-    place_world_obj(&state->world, state->placing_obj);
+    inv_put(&state->inventory, {state->facing_obj->drop, 1});
   }
 }
 
