@@ -571,7 +571,9 @@ Ray cam_ray(Camera *cam) {
   return {cam->position, m4_rotate_y(cam->rotation.y) * m4_rotate_x(cam->rotation.x) * Vec3{0, 0, 1}};
 }
 
-Mat4 rect_vp_matrix(int x, int y, int w, int h, float fov) {
+Mat4 rect_vp_matrix(int x, int y, int w, int h) {
+  float fov = 1;
+  float aspect = float(state->window_w)/float(state->window_h);
   x += w/2;
   y += h/2;
   float x_ = float(x) / state->window_w;
@@ -581,7 +583,7 @@ Mat4 rect_vp_matrix(int x, int y, int w, int h, float fov) {
   y_ *= 2;
   y_ -= 1;
   static float n = 0.0;
-  return m4_translate({x_, -y_, 0}) * m4_perspective(fov, float(state->window_w)/float(state->window_h), 0.1, 1000.0) * m4_lookat({0, 0, 0}, {0, 0, 1}, {0, 1, 0});
+  return m4_translate({x_, -y_, 0}) * m4_scale({1/state->window_h*h*200, 1/state->window_h*h*200, 0}) * m4_perspective(fov, aspect, 0.1, 1000.0) * m4_lookat({0, 0, -100}, {0, 0, 1}, {0, 1, 0});
 }
 
 void render_inventory(Inventory *inv) {
@@ -619,14 +621,15 @@ void render_inventory(Inventory *inv) {
 
     render_8x8_bitmap(inv->selection == i ? selected_bitmap : not_selected_bitmap, x, y, 64, 64);
 
+    // TODO: Figure out why different resolutions put objects further back
     switch (slot.item_type) {
       case Item_Leaves:
-        fgeo_set_vp(rect_vp_matrix(x, y, 64, 64, 1));
-        render_shape_colored(Shape_Cylinder, m4_translate({0, 0, 10}) * m4_rotate_x(-1) * m4_rotate_y(state->time), 1.0f);
+        fgeo_set_vp(rect_vp_matrix(x, y, 64, 64));
+        render_shape_colored(Shape_Cylinder, m4_scale(1/1.5f)  * m4_rotate_x(-1) * m4_rotate_y(state->time), 1.0f);
         break;
       case Item_Wood:
-        fgeo_set_vp(rect_vp_matrix(x, y, 64, 64, 1));
-        render_shape_colored(Shape_Cube, m4_translate({0, 0, 10}) * m4_rotate_x(-1) * m4_rotate_y(state->time), 1.0f);
+        fgeo_set_vp(rect_vp_matrix(x, y, 64, 64));
+        render_shape_colored(Shape_Cube, m4_scale(1/1.5f) * m4_rotate_x(-1) * m4_rotate_y(state->time), 1.0f);
         break;
       default:;
     }

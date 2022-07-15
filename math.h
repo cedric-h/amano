@@ -114,14 +114,17 @@ inline Mat4 operator*=(Mat4 &a, Mat4 b) {
   return a = a * b;
 }
 
-inline Mat4 m4_scale(Vec3 scale)
-{
+inline Mat4 m4_scale(Vec3 scale) {
   return {
     scale.x, 0,       0,       0,
     0,       scale.y, 0,       0,
     0,       0,       scale.z, 0,
     0,       0,       0,       1
   };
+}
+
+inline Mat4 m4_scale(float scale) {
+  return m4_scale({scale, scale, scale});
 }
 
 inline Mat4 m4_identity() {
