@@ -574,7 +574,6 @@ Ray cam_ray(Camera *cam) {
 }
 
 Mat4 rect_vp_matrix(int x, int y, int w, int h) {
-  float fov = 1;
   float aspect = float(state->window_w)/float(state->window_h);
   x += w/2;
   y += h/2;
@@ -585,7 +584,7 @@ Mat4 rect_vp_matrix(int x, int y, int w, int h) {
   y_ *= 2;
   y_ -= 1;
   static float n = 0.0;
-  return m4_translate({x_, -y_, 0}) * m4_scale({1/state->window_h*h*200, 1/state->window_h*h*200, 0}) * m4_perspective(fov, aspect, 0.1, 1000.0) * m4_lookat({0, 0, -100}, {0, 0, 1}, {0, 1, 0});
+  return m4_translate({x_, -y_, 0}) * m4_isometric(state->window_w/w, state->window_h/h, 0.1, 1000.0) * m4_translate({0.0f, 0.0f, -100}); 
 }
 
 void render_inventory(Inventory *inv) {
@@ -627,11 +626,11 @@ void render_inventory(Inventory *inv) {
     switch (slot.item_type) {
       case Item_Leaves:
         fgeo_set_vp(rect_vp_matrix(x, y, 64, 64));
-        render_shape_colored(Shape_Cylinder, m4_scale(1/1.5f)  * m4_rotate_x(-1) * m4_rotate_y(state->time), 1.0f);
+        render_shape_colored(Shape_Cylinder, m4_scale(0.5f) * m4_rotate_x(-1) * m4_rotate_y(state->time), 1.0f);
         break;
       case Item_Wood:
         fgeo_set_vp(rect_vp_matrix(x, y, 64, 64));
-        render_shape_colored(Shape_Cube, m4_scale(1/1.5f) * m4_rotate_x(-1) * m4_rotate_y(state->time), 1.0f);
+        render_shape_colored(Shape_Cube, m4_scale(0.5f) * m4_rotate_x(-1) * m4_rotate_y(state->time), 1.0f);
         break;
       default:;
     }

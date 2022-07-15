@@ -145,6 +145,25 @@ inline Mat4 m4_rotation2d(float theta) {
   };
 }
 
+
+inline Mat4 m4_isometric(float width, float height, float near, float far) {
+  float l = -1;
+  float r = 1;
+  float t = -1;
+  float b = 1;
+  l *= width/2;
+  r *= width/2;
+  t *= height/2;
+  b *= height/2;
+
+  return {
+    2.0f/(r-l), 0,            0,                0,
+    0,          2.0f/(t-b),   0,                0,
+    0,          0,            -2.0f/(far-near), 0,
+    -(r+l)/(r-l),          -(t+b)/(t-b),            -(far+near)/(far-near),                1.0f
+  };
+}
+
 // TODO: This function doesn't work, think why?
 inline Mat4 m4_perspective2(float l, float t, float r, float b, float near, float far) {
   return {{
