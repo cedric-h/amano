@@ -543,7 +543,7 @@ bool point_vs_box(Vec3 pos, Box box) {
          pos.z > box.min.z && pos.z < box.max.z;
 }
 
-bool ray_vs_box(Ray ray, Box box, Mat4 m) {
+bool ray_vs_box(Ray ray, Box box, Mat4 m, Vec3 *collision) {
   float delta = 0.01;
   Vec3 pos = ray.origin;
   Vec3 dir = v3_normalize(ray.direction) * delta;
@@ -561,9 +561,11 @@ bool ray_vs_box(Ray ray, Box box, Mat4 m) {
     Vec3 transformed = (origin - pos) * m;
 
     if (point_vs_box(transformed, centerBox)) {
+      *collision = pos;
       return true;
     }
   }
+  *collision = pos;
   return false;
 }
 
@@ -723,18 +725,22 @@ PLATFORM_EXPORT void frame(float dt) {
 
   handle_block_gizmos();
 
+  Vec3 oldHitPoint { -1000000000, -10000000000, -10000000000 };
   for (int i = 0; i < state->world.object_count; ++i) {
     Object *obj = &state->world.objects[i];
     if (obj->exists) {
       Mat4 transform = m4_rotate_yxz(obj->rot) * m4_scale({1/obj->scale.x, 1/obj->scale.y, 1/obj->scale.z});
-      if (ray_vs_box(cam_ray(&state->cam), expand_box_from_point(obj->pos, 0.5), transform)) {
+      Vec3 hitPoint;
+
+      if (ray_vs_box(cam_ray(&state->cam), expand_box_from_point(obj->pos, 0.5), transform, &hitPoint)) {
         if (state->facing_obj == nullptr) {
           state->is_placing_floor = false;
           state->facing_obj = obj;
         } else {
-          float distance_a = object_distance(state->facing_obj, state->cam.position);
-          float distance_b = object_distance(obj, state->cam.position);
+          float distance_a = object_distance(state->facing_obj, oldHitPoint);
+          float distance_b = object_distance(obj, hitPoint);
           if (distance_b < distance_a) {
+            oldHitPoint = hitPoint;
             render_obj(state->facing_obj);
             state->is_placing_floor = false;
             state->facing_obj = obj;
