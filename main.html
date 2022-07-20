@@ -16,22 +16,162 @@
     color: white;
     font-family: sans-serif;
   }
+  canvas {
+    width: 100vw;
+    height: 100vh;
+  }
   </style>
 </head>
 <body>
   <canvas id="draw"></canvas>
+  <script src=webgl-debug.js></script>
+  <script src=wahook.js></script>
   <script>
+const vs = `
+precision mediump float;
+
+attribute vec3 pos;
+attribute vec3 normal;
+attribute float color;
+
+uniform mat4 mvp;
+
+varying vec4 fs_color;
+
+
+void main() {
+  fs_color = vec4((normal+vec3(1.0, 1.0, 1.0))/2.0*color, 1.0);
+  gl_Position = mvp * vec4(pos, 1.0);
+}
+`
+const fs = `
+precision mediump float;
+
+varying vec4 fs_color;
+
+void main() {
+  gl_FragColor = fs_color;
+}
+`
+
 /* "with great power, comes great renamability" - max wofford */
 
-(async () => {
-  const wasm = fetch("build/main.wasm");
-  const { instance } =
-    await WebAssembly.instantiateStreaming(wasm, { env: {
-      putchar: c => console.log(String.fromCharCode(c)),
-    } });
 
-    instance.exports.init();
-})()
+let canvas = null, renderer = null, shader = null, buffer = null, wasm_instance = null;
+let prevMouseDeltaRel = 0.0;
+
+function renderHandler(indices, vertices, mvp) {
+  renderer.updateBuffer(buffer, vertices, indices);
+  renderer.setUniformMatrix4fv(shader, 'mvp', mvp);
+  renderer.draw(shader, buffer);
+}
+
+let last;
+function frameHandler(ts) {
+  last ??= ts;
+  const dt = ts - last;
+  last = ts;
+
+  renderer.gl.clearColor(0.5, 0.4, 0.8, 1.0);
+  renderer.gl.clear(renderer.gl.COLOR_BUFFER_BIT | renderer.gl.DEPTH_BUFFER_BIT);
+
+  wasm_instance.exports.frame(dt * 0.001);
+  window.requestAnimationFrame(frameHandler);
+}
+
+function withString(str, cb) {
+  let bytes = new TextEncoder().encode(str)
+  let ptr = wasm_instance.exports.getstack(bytes.byteLength + 1);
+  let buffer = new Uint8Array(wasm_instance.exports.memory.buffer, ptr, bytes.byteLength + 1);
+  buffer.set(bytes);
+  buffer.set([0], bytes.byteLength);
+  cb(ptr);
+  wasm_instance.exports.setstack(ptr);
+}
+
+
+window.addEventListener("load", () => {
+  canvas = document.getElementById("draw");
+  canvas.width = window.innerWidth
+  canvas.height = window.innerHeight
+  renderer = new Renderer(canvas);
+  shader = renderer.createShader(vs, fs);
+  buffer = renderer.createBuffer(new Float32Array(), new Uint16Array());
+  renderer.vertexAttribFloatDesc(shader, [new Attrib('pos', 3), new Attrib('normal', 3), new Attrib('color', 1)]);
+  (async () => {
+    const wasm = fetch("build/main.wasm");
+    const { instance } =
+      await WebAssembly.instantiateStreaming(wasm, { env: {
+        render: (i, ic, v, vc, m) => {
+          const floatsPerVertex = 7;
+          let indices = new Uint16Array(instance.exports.memory.buffer, i, ic);
+          let vertices = new Float32Array(instance.exports.memory.buffer, v, vc * floatsPerVertex);
+          let mvp = new Float32Array(instance.exports.memory.buffer, m, 16);
+          renderHandler(indices, vertices, mvp)
+        },
+        select: (k, v) => {
+          switch (k) {
+            case 0: // Depth Test
+              if (v) {
+                renderer.gl.enable(renderer.gl.DEPTH_TEST);
+              } else {
+                renderer.gl.disable(renderer.gl.DEPTH_TEST);
+              }
+              break;
+            default: 
+              console.warn("Invalid select key "+k);
+              break;
+          }
+        },
+        console_log_n: (s, l) => console.log(new TextDecoder().decode(new Int8Array(instance.exports.memory.buffer, s, l)))
+      } });
+
+      instance.exports.init();
+      wasm_instance = instance
+      wasm_instance.exports.resize(canvas.width, canvas.height);
+
+      window.addEventListener("resize", (e) => {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        renderer.gl.viewport(0, 0, window.innerWidth, window.innerHeight);
+        wasm_instance.exports.resize(canvas.width, canvas.height);
+      })
+
+      window.addEventListener("keydown", (e) => {
+        withString(e.code, (s) => wasm_instance.exports.keyhit(true, s))
+      })
+
+      window.addEventListener("keyup", (e) => {
+        withString(e.code, (s) => wasm_instance.exports.keyhit(false, s))
+      })
+
+      canvas.addEventListener("mousedown", (e) => {
+        wasm_instance.exports.mousehit(true, e.button);
+      })
+
+      canvas.addEventListener("mouseup", (e) => {
+        wasm_instance.exports.mousehit(false, e.button);
+      })
+
+      canvas.addEventListener("mousemove", (e) => {
+        e.preventDefault()
+        var dx = e.movementX, dy = e.movementY;
+        var dist = Math.sqrt(dx*dx+dy*dy);
+
+        if (dist < prevMouseDeltaRel || dist < 250) {
+          wasm_instance.exports.mousemove(e.offsetX, e.offsetY, dx, dy);
+        }
+
+        prevMouseDeltaRel = dist;
+      })
+
+      canvas.addEventListener("click", (e) => {
+        e.target.requestPointerLock()
+      })
+
+      window.requestAnimationFrame(frameHandler)
+  })()
+})
 </script>
 </body>
 </html>

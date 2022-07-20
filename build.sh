@@ -1,9 +1,16 @@
+mkdir -p build
 cd build
 
-zigc build-lib \
-  -O Debug \
-  -rdynamic \
-  -dynamic -target wasm32-freestanding ../main.c
+while true
+do
+  wc -c main.wasm
+  zig build-lib \
+    -O Debug \
+    -rdynamic \
+    -dynamic -target wasm32-freestanding ../main.cpp ../platform.cpp ../gen.cpp ../log.cpp
+
+  sleep 1
+done
 
 # clang \
 #    --target=wasm32 \
