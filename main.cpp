@@ -133,11 +133,15 @@ Vec3 get_infront_of_camera(Camera *cam, float by) {
   return cam->position + move_relative_to_camera(cam, {0, 0, by});
 }
 
+Vec3 cam_make_motion_relative(Camera *cam, Vec3 motion) {
+  return m4_rotate_y(cam->rotation.y) * motion;
+}
+
 void cam_move(Camera *cam, Vec3 rotation_delta, Vec3 position_delta) {
   const float LIM = MATH_PI_2-0.001;
 
   cam->rotation += rotation_delta;
-  cam->position += m4_rotate_y(cam->rotation.y) * position_delta;
+  cam->position += cam_make_motion_relative(cam, position_delta);
 
   cam->rotation.x = fmod(cam->rotation.x, MATH_PI*2);
   cam->rotation.y = fmod(cam->rotation.y, MATH_PI*2);
@@ -164,6 +168,11 @@ struct Ray {
 struct Box {
   Vec3 min;
   Vec3 max;
+};
+
+struct TransformBox {
+  Box box;
+  Mat4 transform;
 };
 
 enum Key {
@@ -209,10 +218,17 @@ struct State {
 
   World world;
   Inventory inventory;
-
 } *state;
 
 State state_memory;
+
+Vec3 state_get_foot(State *state) {
+  return state->cam.position + Vec3{0, -1.5, 0};
+}
+
+void state_set_foot(State *state, Vec3 foot) {
+  state->cam.position = foot - Vec3{0, -1.5, 0};
+}
 
 int strcmp(const char *a, const char *b) {
   while (*a && *a == *b) {
@@ -221,7 +237,6 @@ int strcmp(const char *a, const char *b) {
   }
   return *a-*b;
 }
-
 
 Object default_obj(Shape shape) {
   Object result = {};
@@ -261,6 +276,35 @@ static void geo_make_tri(Geo *geo, u16 a, u16 b, u16 c) {
   geo->ibuf[geo->ibuf_len++] = c;
 }
 
+static void geo_push_geo(Geo *dst, Geo *src, float color, Mat4 m) {
+  int v_start = dst->vbuf_len;
+  for (int i = 0; i < src->vbuf_len; i++) {
+    Vert vert = src->vbuf[i];
+    vert.norm = vert.norm;
+    vert.color = color;
+    vert.pos = m * vert.pos;
+    dst->vbuf[dst->vbuf_len++] = vert;
+  }
+
+  for (int i = 0; i < src->ibuf_len; i++) {
+    dst->ibuf[dst->ibuf_len++] = v_start + src->ibuf[i];
+  }
+}
+
+static void geo_fix_normals(Geo *dst, Mat4 m) {
+
+  for (int i = 0; i < dst->ibuf_len; i += 3) {
+    Vert *a = &dst->vbuf[dst->ibuf[i]],
+         *b = &dst->vbuf[dst->ibuf[i+1]],
+         *c = &dst->vbuf[dst->ibuf[i+2]];
+    Vec3 ap = a->pos * m,
+         bp = b->pos * m,
+         cp = c->pos * m;
+
+    Vec3 normal = v3_normalize(v3_cross(ap-cp, bp-cp));
+    a->norm = b->norm = c->norm = normal;
+  }
+}
 
 #define FRAME_VBUF_SIZE (1 << 12)
 #define FRAME_IBUF_SIZE (1 << 13)
@@ -306,50 +350,32 @@ void fgeo_set_vp(Mat4 vp) {
   fgeo_vp = vp;
 }
 
-void render_shape_colored(Shape shape, Mat4 m, float color) {
-  Geo *src = shape_geos + shape;
 
+void render_geo(Geo *src, Mat4 m, float color) {
   if ((src->ibuf_len + fgeo.ibuf_len) >= FRAME_IBUF_SIZE) {
     flush_fgeo();
     if ((src->ibuf_len + fgeo.ibuf_len) >= FRAME_IBUF_SIZE) {
-      tprintf("Shape {} is too big to fit\n", shape);
+      tprintf("Geo is too big to fit\n");
       return;
     }
   }
   if ((src->vbuf_len + fgeo.vbuf_len) >= FRAME_VBUF_SIZE) {
     flush_fgeo();
     if ((src->vbuf_len + fgeo.vbuf_len) >= FRAME_VBUF_SIZE) {
-      tprintf("Shape {} is too big to fit\n", shape);
+      tprintf("Geo is too big to fit\n");
       return;
     }
   }
 
+  geo_push_geo(&fgeo, src, color, m);
+}
+
+void render_shape_colored(Shape shape, Mat4 m, float color) {
+  Geo *src = shape_geos + shape;
+
   // Reassign normals. NOTE: mutates original geo normals!
-  for (int i = 0; i < src->ibuf_len; i += 3) {
-    Vert *a = &src->vbuf[src->ibuf[i]],
-         *b = &src->vbuf[src->ibuf[i+1]],
-         *c = &src->vbuf[src->ibuf[i+2]];
-    Vec3 ap = a->pos * m,
-         bp = b->pos * m,
-         cp = c->pos * m;
-
-    Vec3 normal = v3_normalize(v3_cross(ap-cp, bp-cp));
-    a->norm = b->norm = c->norm = normal;
-  }
-
-
-  int v_start = fgeo.vbuf_len;
-  for (int i = 0; i < src->vbuf_len; i++) {
-    Vert vert = src->vbuf[i];
-    vert.norm = vert.norm;
-    vert.color = color;
-    vert.pos = m * vert.pos;
-    fgeo.vbuf[fgeo.vbuf_len++] = vert;
-  }
-
-  for (int i = 0; i < src->ibuf_len; i++) {
-    fgeo.ibuf[fgeo.ibuf_len++] = v_start + src->ibuf[i];
-  }
+  geo_fix_normals(src, m);
+  render_geo(src, m, color);
 }
 
 void render_shape_colored(Shape shape, Vec3 at, Vec3 rot, float color) {
@@ -364,7 +390,11 @@ void render_shape(Shape shape, Vec3 at, Vec3 rot) {
   render_shape(shape, m4_translate(at)*m4_rotate_yxz(rot));
 }
 
-void render_8x8_bitmap(const u8 *bitmap, float x, float y, float w, float h) {
+void render_marker(Vec3 position) {
+  render_shape(Shape_Cube, m4_translate(position) * m4_scale({0.2, 0.2, 0.2}));
+}
+
+void render_8x8_bitmap_3d(const u8 *bitmap, Mat4 m) {
   Vert base[4] = {
     {{0, 0, -1}, {1, 1, 1}, 1},
     {{0, -1, -1}, {1, 1, 1}, 1},
@@ -400,6 +430,16 @@ void render_8x8_bitmap(const u8 *bitmap, float x, float y, float w, float h) {
     }
   }
 
+  Geo geo = {};
+  geo.ibuf = out_indices;
+  geo.ibuf_len = out_indices_count;
+  geo.vbuf = out;
+  geo.vbuf_len = out_count;
+
+  render_geo(&geo, m, 1.0);
+}
+
+void render_8x8_bitmap(const u8 *bitmap, float x, float y, float w, float h) {
   w /= 8;
   h /= 8;
 
@@ -410,7 +450,7 @@ void render_8x8_bitmap(const u8 *bitmap, float x, float y, float w, float h) {
     x/state->window_w*2.0f-1.0f, (-y)/state->window_h*2.0f+1.0f, 0, 1
   };
 
-  render(out_indices, out_indices_count, out, out_count, rectMat);
+  render_8x8_bitmap_3d(bitmap, rectMat);
 }
 
 void render_8x16ascii_text(const char *txt, int x, int y) {
@@ -533,6 +573,17 @@ Box expand_box_from_point(Vec3 point, float radius) {
           {point.x + radius, point.y + radius, point.z + radius}};
 }
 
+Box box_translate(Box box, Vec3 by) {
+  box.min.x += by.x;
+  box.min.y += by.y;
+  box.min.z += by.z;
+  box.max.x += by.x;
+  box.max.y += by.y;
+  box.max.z += by.z;
+
+  return box;
+}
+
 Vec3 box_origin(Box box) {
   return {(box.max.x + box.min.x)/2, (box.max.y + box.min.y)/2, (box.max.z + box.min.z)/2};
 }
@@ -543,22 +594,24 @@ bool point_vs_box(Vec3 pos, Box box) {
          pos.z > box.min.z && pos.z < box.max.z;
 }
 
-bool ray_vs_box(Ray ray, Box box, Mat4 m, Vec3 *collision) {
+bool point_vs_transform_box(Vec3 pos, TransformBox tb) {
+  Vec3 origin = box_origin(tb.box);
+  Box centerBox = box_translate(tb.box, origin*-1);
+
+  Vec3 transformed = (origin - pos) * tb.transform;
+  return point_vs_box(transformed, centerBox);
+}
+
+bool ray_vs_box(Ray ray, TransformBox tb, Vec3 *collision) {
   float delta = 0.01;
   Vec3 pos = ray.origin;
   Vec3 dir = v3_normalize(ray.direction) * delta;
-  Vec3 origin = box_origin(box);
-  Box centerBox = box;
-  centerBox.min.x -= origin.x;
-  centerBox.min.y -= origin.y;
-  centerBox.min.z -= origin.z;
-  centerBox.max.x -= origin.x;
-  centerBox.max.y -= origin.y;
-  centerBox.max.z -= origin.z;
+  Vec3 origin = box_origin(tb.box);
+  Box centerBox = box_translate(tb.box, origin*-1);
 
   for (int i = 0; i < 100; ++i) {
     pos += dir * i;
-    Vec3 transformed = (origin - pos) * m;
+    Vec3 transformed = (origin - pos) * tb.transform;
 
     if (point_vs_box(transformed, centerBox)) {
       *collision = pos;
@@ -567,6 +620,12 @@ bool ray_vs_box(Ray ray, Box box, Mat4 m, Vec3 *collision) {
   }
   *collision = pos;
   return false;
+}
+
+
+TransformBox object_make_transform_box(Object *obj) {
+  Mat4 tf = m4_rotate_yxz(obj->rot * -1) * m4_scale({1/obj->scale.x, 1/obj->scale.y, 1/obj->scale.z});
+  return {expand_box_from_point(obj->pos, 0.5), tf};
 }
 
 Ray cam_ray(Camera *cam) {
@@ -610,8 +669,7 @@ void render_inventory(Inventory *inv) {
   };
 
   // FIXME: The depth test toggling here seems kinda bad
-  flush_fgeo();
-  select(SelectKey_DepthTest, false);
+
   for (int i = 0; i < INVENTORY_ITEM_COUNT; ++i) {
     ItemStack slot = inv->items[i];
     if (slot.item_type != Item_NULL) {
@@ -620,6 +678,7 @@ void render_inventory(Inventory *inv) {
     int x = 20 + i * 80;
     int y = state->window_h-32-32;
 
+    fgeo_set_vp(m4_identity());
     render_8x8_bitmap(inv->selection == i ? selected_bitmap : not_selected_bitmap, x, y, 64, 64);
 
     // TODO: Figure out why different resolutions put objects further back
@@ -635,11 +694,14 @@ void render_inventory(Inventory *inv) {
       default:;
     }
   }
-  flush_fgeo();
-  select(SelectKey_DepthTest, true);
+  fgeo_set_vp(m4_identity());
 }
 
 void render_overlays(float dt) {
+  fgeo_set_vp(m4_identity());
+  select(SelectKey_DepthTest, false);
+
+ 
   // Debug
   render_debug_info(dt);
 
@@ -657,6 +719,9 @@ void render_overlays(float dt) {
   render_8x8_bitmap(cursor_bitmap, state->window_w/2-8,  state->window_h/2-8, 16, 16);
 
   render_inventory(&state->inventory);
+
+  flush_fgeo();
+  select(SelectKey_DepthTest, true);
 }
 
 void render_obj(Object *obj, float color = 1.0f) {
@@ -705,12 +770,49 @@ bool handle_block_placement(ItemStack item) {
   return false;
 }
 
-PLATFORM_EXPORT void frame(float dt) {
-  state->time += dt;
-  cam_move(&state->cam, {0, 0, 0}, 
-    {(state->keys[Key_D] - state->keys[Key_A]) * dt,
+void run_player_motion(Vec3 motion) {
+  const int integrations = 20;
+  Vec3 pos = state_get_foot(state);
+  Vec3 newPos = pos + motion;
+  Vec3 delta = (pos-newPos) * 1/float(integrations);
+
+
+  for (usize i = 0; i < state->world.object_count; ++i) {
+    Object *obj = &state->world.objects[i];
+    if (is_object_valid(obj)) {
+      TransformBox tb = object_make_transform_box(obj);
+      if (point_vs_transform_box(newPos, tb)) {
+        for (int i = 0; i < integrations && point_vs_transform_box(newPos, tb); ++i) {
+          newPos += delta;
+        }
+        break;
+      }
+    }
+  }
+
+  state_set_foot(state, newPos);
+}
+
+void run_physics(float dt) {
+  Vec3 motion = cam_make_motion_relative(&state->cam, Vec3{(state->keys[Key_D] - state->keys[Key_A]) * dt,
      (state->keys[Key_Space] - state->keys[Key_Shift]) * dt,
      (state->keys[Key_W] - state->keys[Key_S]) * dt});
+
+#if 0
+  run_player_motion({0, motion.y, 0});
+  run_player_motion({0, 0, motion.z});
+  run_player_motion({motion.x, 0, 0});
+#else
+  state->cam.position += motion;
+#endif
+}
+
+PLATFORM_EXPORT void frame(float dt) {
+  state->time += dt;
+  if (dt > 0.01) {
+    dt = 0.01;
+  }
+  run_physics(dt);
 
   fgeo_set_vp(cam_vp(&state->cam));
 
@@ -728,10 +830,9 @@ PLATFORM_EXPORT void frame(float dt) {
   for (int i = 0; i < state->world.object_count; ++i) {
     Object *obj = &state->world.objects[i];
     if (obj->exists) {
-      Mat4 transform = m4_rotate_yxz(obj->rot) * m4_scale({1/obj->scale.x, 1/obj->scale.y, 1/obj->scale.z});
       Vec3 hitPoint;
 
-      if (ray_vs_box(cam_ray(&state->cam), expand_box_from_point(obj->pos, 0.5), transform, &hitPoint)) {
+      if (ray_vs_box(cam_ray(&state->cam), object_make_transform_box(obj), &hitPoint)) {
         if (state->facing_obj == nullptr) {
           state->is_placing_floor = false;
           state->facing_obj = obj;
@@ -760,9 +861,11 @@ PLATFORM_EXPORT void frame(float dt) {
   if (state->is_placing_floor) {
     render_obj(&state->placing_obj, 0.5);
   }
+  
+  render_marker(state_get_foot(state));
 
   render_overlays(dt);
-
+  
   flush_fgeo();
 }
 
@@ -799,7 +902,7 @@ PLATFORM_EXPORT void init(void) {
   state = &state_memory;
   state->aspect = state->cam.aspect = 1;
   state->cam.fov = MATH_PI_2/2;
-  state->cam.position.y = 2;
+  state->cam.position = {0.3, 2, 0.3};
 
   Object dirt_obj = default_obj(Shape_Cylinder);
   dirt_obj.unbreakable = true;
